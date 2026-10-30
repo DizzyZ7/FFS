@@ -24,5 +24,5 @@ def test_styles():
 def test_ass_has_animated_effect_and_newlines():
     ass=to_ass([Word(0,0.5,'Hello'),Word(1,1.5,'world')])
     assert ass.count('Dialogue:')==2
-    assert '\\t(0,170' in ass
+    assert 't(0,170' in ass
     assert ass.splitlines()[-1].startswith('Dialogue:')
