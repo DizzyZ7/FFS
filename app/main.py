@@ -8,7 +8,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from .media import probe, detect_scenes, render
+from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
 from .transcription import transcribe_words
@@ -261,6 +261,30 @@ def auto_edit_instruction(pid:str,request:EditInstructionRequest):
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     return {'plan':plan,'interpreted':settings}
+
+class SocialRenderRequest(BaseModel):
+    clips: list[Clip] = Field(min_length=1,max_length=100)
+    aspect: str = '9:16'
+    framing: str = 'crop'
+
+@app.post('/api/projects/{pid}/social-render')
+def social_render(pid:str,request:SocialRenderRequest):
+    folder=project_dir(pid)
+    try:
+        render_social(folder/'source.mp4',[c.model_dump() for c in request.clips],
+                      folder/'social-output.mp4',aspect=request.aspect,framing=request.framing)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500,'Social export failed') from exc
+    return {'download':f'/api/projects/{pid}/social-download'}
+
+@app.get('/api/projects/{pid}/social-download')
+def social_download(pid:str):
+    path=project_dir(pid)/'social-output.mp4'
+    if not path.is_file():
+        raise HTTPException(404,'Social export not found')
+    return FileResponse(path,filename='frameforge-social.mp4',media_type='video/mp4')
 
 class AutoEditPlanRequest(BaseModel):
     target_seconds: float = Field(default=30,ge=3,le=180)
