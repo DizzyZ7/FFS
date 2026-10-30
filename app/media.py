@@ -1,4 +1,5 @@
 import json
+import math
 import re
 import subprocess
 from pathlib import Path
@@ -61,7 +62,7 @@ def render_social(source: Path, clips: list, output: Path, aspect: str='9:16',
     video_filters=[];audio_filters=[];vlabels=[];alabels=[]
     for i,clip in enumerate(clips):
         start=float(clip['start']);end=float(clip['end'])
-        if not (0<=start<end<=meta['duration']+0.01):
+        if not (math.isfinite(start) and math.isfinite(end) and 0<=start<end<=meta['duration']+0.01):
             raise ValueError('Invalid clip bounds')
         scale_mode='increase' if framing=='crop' else 'decrease'
         geometry=(f'crop={width}:{height}' if framing=='crop'
