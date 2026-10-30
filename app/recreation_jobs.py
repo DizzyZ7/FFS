@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 def shot_fingerprint(shot):
-    payload={key:shot.get(key) for key in ('id','duration','subject_ids','instructions','revision')}
+    payload={key:value for key,value in shot.items()
+             if key not in ('generation_status','output_path')}
     encoded=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()
     return hashlib.sha256(encoded).hexdigest()
 
