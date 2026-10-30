@@ -23,3 +23,23 @@ def test_no_approval_rejected(tmp_path):
     with pytest.raises(PermissionError):
         queue_approved_shot(tmp_path,blueprint(),'project','shot-0001','key-12345678',
                             price_per_second_usd=2,approved=False,max_budget_usd=4)
+
+def test_reserved_without_job_does_not_retry_automatically(tmp_path):
+    from app.generation_dispatch import reserve_dispatch
+    from app.generation_preflight import prepare_generation_batch
+    batch=prepare_generation_batch(blueprint(),'project',['shot-0001'],
+        price_per_second_usd=2,approved=True,max_budget_usd=4)
+    reserve_dispatch(tmp_path,'key-12345678','shot-0001',batch.fingerprints[0])
+    result=queue_approved_shot(tmp_path,blueprint(),'project','shot-0001','key-12345678',
+        price_per_second_usd=2,approved=True,max_budget_usd=4)
+    assert result['job'] is None
+    assert 'manual reconciliation' in result['warning']
+    assert not (tmp_path/'generation-jobs').exists()
+
+def test_conflicting_key_after_edit_rejected(tmp_path):
+    args=dict(price_per_second_usd=2,approved=True,max_budget_usd=4)
+    queue_approved_shot(tmp_path,blueprint(),'project','shot-0001','key-12345678',**args)
+    changed=blueprint()
+    changed['shots'][0]['instructions']='Different sunrise'
+    with pytest.raises(ValueError,match='reused'):
+        queue_approved_shot(tmp_path,changed,'project','shot-0001','key-12345678',**args)
