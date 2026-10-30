@@ -6,17 +6,18 @@ It does not call any paid provider or claim distributed exactly-once execution.
 import json
 import sqlite3
 import uuid
+import re
 from pathlib import Path
 
 def reserve_approved_job(folder:Path,key:str,shot_id:str,fingerprint:str):
     from .generation_dispatch import _KEY
-    import re
     if not isinstance(key,str) or not _KEY.fullmatch(key):
         raise ValueError('Invalid idempotency key')
     if not isinstance(shot_id,str) or not shot_id:
         raise ValueError('Invalid shot ID')
     if not isinstance(fingerprint,str) or not re.fullmatch(r'[0-9a-f]{64}',fingerprint):
         raise ValueError('Invalid fingerprint')
+    folder=Path(folder)
     folder.mkdir(parents=True,exist_ok=True)
     path=folder/'approved-queue.sqlite3'
     with sqlite3.connect(path,timeout=15,isolation_level=None) as conn:
