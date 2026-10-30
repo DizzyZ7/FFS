@@ -8,5 +8,5 @@ def test_social_export_controls_match_js_handler():
 
 def test_ranked_montage_controls_match_handler():
     html=(Path(__file__).resolve().parents[1]/'web'/'index.html').read_text(encoding='utf8')
-    for element_id in ('ranked-montage','highlight-results','auto-duration','auto-pace','asr-model'):
+    for element_id in ('ranked-montage','ranked-render','highlight-results','auto-duration','auto-pace','asr-model'):
         assert f'id="{element_id}"' in html
