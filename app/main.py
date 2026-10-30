@@ -20,6 +20,7 @@ from .generation import GenerationRequest
 from .worker import execute_job
 from .local_demo_provider import LocalReferenceDemoProvider
 from .provider_config import configured_provider
+from .reference_audio import audio_onsets, cut_alignment
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -387,6 +388,17 @@ def run_recreation_local_demo(pid:str,job_id:str):
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
         raise HTTPException(503,'Local demo render unavailable') from exc
+
+@app.get('/api/projects/{pid}/reference/audio-analysis')
+def analyze_reference_audio(pid:str):
+    folder=project_dir(pid)
+    try:
+        reference=get_recreation_blueprint(pid)
+        analysis=audio_onsets(folder/'source.mp4')
+        return {**analysis,'alignment':cut_alignment(reference.get('cut_points',[]),
+                                                     analysis['onsets'])}
+    except (subprocess.SubprocessError,OSError,ValueError) as exc:
+        raise HTTPException(503,'Reference audio analysis unavailable') from exc
 
 @app.get('/api/generation/provider')
 def generation_provider_status():
