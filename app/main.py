@@ -24,7 +24,9 @@ from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
 from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
-from .generation_preflight import prepare_generation_batch, select_shots_for_estimate
+from .generation_preflight import prepare_generation_batch
+from .generation_payload import prepare_shot
+from .generation_dispatch import reserve_dispatch, get_dispatch, select_shots_for_estimate
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -406,6 +408,352 @@ class GenerationBatchRequest(BaseModel):
     price_per_second_usd: float = Field(ge=0,le=1000)
     approved: bool = False
     max_budget_usd: float|None = Field(default=None,ge=0,le=1000000)
+
+class DispatchReservationRequest(BaseModel):
+    shot_id: str = Field(min_length=1,max_length=128)
+    idempotency_key: str = Field(pattern=r'^[a-zA-Z0-9_-]{8,128}
+def generation_batch_preflight(pid:str,request:GenerationBatchRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        batch=prepare_generation_batch(blueprint,pid,request.shot_ids,
+                price_per_second_usd=request.price_per_second_usd,
+                approved=request.approved,max_budget_usd=request.max_budget_usd)
+        return {'shot_ids':batch.shot_ids,'fingerprints':batch.fingerprints,
+                'estimated_usd':batch.estimated_usd,
+                'total_seconds':batch.total_seconds,'approved':batch.approved,
+                'warning':'Preflight only; no external generation or billing occurs'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except (ValueError,TypeError) as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@app.post('/api/projects/{pid}/recreation/cost-estimate')
+def estimate_recreation_cost(pid:str,request:GenerationCostRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        selected=select_shots_for_estimate(blueprint,request.shot_ids) if request.shot_ids is not None else blueprint
+        return estimate_generation_cost(selected,request.price_per_second_usd).__dict__
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@app.post('/api/projects/{pid}/recreation/cost-approval-check')
+def check_recreation_budget(pid:str,request:GenerationApprovalRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        selected=select_shots_for_estimate(blueprint,request.shot_ids) if request.shot_ids is not None else blueprint
+        estimate=estimate_generation_cost(selected,request.price_per_second_usd)
+        validate_paid_generation_approval(approved=request.approved,
+            estimated_usd=estimate.estimated_usd,max_budget_usd=request.max_budget_usd)
+        return {'approved':True,'estimate':estimate.__dict__,
+                'warning':'Preflight check only: no paid generation was initiated'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@app.get('/api/projects/{pid}/recreation/guidance')
+def recreation_shot_guidance(pid:str,include_audio:bool=False,include_motion:bool=False):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    onsets=[]
+    motion=[]
+    try:
+        if include_audio:
+            onsets=audio_onsets(folder/'source.mp4')['onsets']
+        if include_motion:
+            scenes=[{'start':shot['source_start'],'end':shot['source_end']}
+                    for shot in blueprint['shots']]
+            motion=analyze_motion_activity(folder/'source.mp4',scenes,
+                    duration=float(blueprint['reference']['duration']))
+    except (subprocess.SubprocessError,OSError,ValueError,RuntimeError) as exc:
+        raise HTTPException(503,'Reference guidance analysis unavailable') from exc
+    return build_shot_guidance(blueprint,motion_scenes=motion,audio_onsets=onsets)
+
+@app.get('/api/projects/{pid}/reference/motion-analysis')
+def analyze_reference_motion(pid:str):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    scenes=[{'start':shot['source_start'],'end':shot['source_end']}
+            for shot in blueprint['shots']]
+    try:
+        return {'scenes':analyze_motion_activity(folder/'source.mp4',scenes,
+                         duration=float(blueprint['reference']['duration'])),
+                'warning':'Visual activity is not camera-motion direction'}
+    except (subprocess.SubprocessError,OSError,ValueError,RuntimeError) as exc:
+        raise HTTPException(503,'Reference visual activity analysis unavailable') from exc
+
+@app.get('/api/projects/{pid}/reference/audio-analysis')
+def analyze_reference_audio(pid:str):
+    folder=project_dir(pid)
+    try:
+        reference=get_recreation_blueprint(pid)
+        analysis=audio_onsets(folder/'source.mp4')
+        return {**analysis,'alignment':cut_alignment(reference.get('cut_points',[]),
+                                                     analysis['onsets'])}
+    except (subprocess.SubprocessError,OSError,ValueError) as exc:
+        raise HTTPException(503,'Reference audio analysis unavailable') from exc
+
+@app.get('/api/generation/provider')
+def generation_provider_status():
+    config=configured_provider()
+    return {'provider_id':config.provider_id,'available':config.available,
+            'reason':config.reason,
+            'supports_ai_generation':False}
+
+@app.get('/api/projects/{pid}/visual-scores')
+def visual_scores(pid:str):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        scores=visual_scene_scores(folder/'source.mp4',project['scenes'],
+                                   duration=float(project['metadata']['duration']))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Visual analysis unavailable') from exc
+    return {'scenes':scores,'method':'ffmpeg_brightness',
+            'warning':'Exposure heuristic only; not semantic or aesthetic scoring'}
+
+class RankedAutoEditRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+    target_seconds: float = Field(default=30,ge=3,le=180)
+    format: str = 'reels'
+    pace: str = 'dynamic'
+
+@app.post('/api/projects/{pid}/auto-edit/ranked-plan')
+def ranked_auto_edit_plan(pid:str,request:RankedAutoEditRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        ranked=rank_highlights(project['scenes'],transcript['words'],
+                               duration=float(project['metadata']['duration']))
+        plan=create_ranked_auto_edit_plan(ranked,float(project['metadata']['duration']),
+                 target_seconds=request.target_seconds,format=request.format,pace=request.pace)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Speech analysis unavailable') from exc
+    return {'plan':plan,'ranked_scenes':ranked,
+            'warning':'Highlight ranking is heuristic; inspect before export'}
+
+class HighlightRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+
+@app.post('/api/projects/{pid}/highlights')
+def highlights(pid:str,request:HighlightRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        ranked=rank_highlights(project['scenes'],transcript['words'],
+                               duration=float(project['metadata']['duration']))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Speech analysis unavailable') from exc
+    return {'ranked_scenes':ranked,'ranking_method':'speech_density_and_conciseness',
+            'warning':'Heuristic scores; not semantic quality or emotion detection'}
+
+class EditInstructionRequest(BaseModel):
+    instruction: str = Field(min_length=1,max_length=1000)
+
+@app.post('/api/projects/{pid}/auto-edit/instruction')
+def auto_edit_instruction(pid:str,request:EditInstructionRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        settings=parse_edit_request(request.instruction)
+        plan=create_auto_edit_plan(project['scenes'],float(project['metadata']['duration']),
+            target_seconds=settings['target_seconds'],format=settings['format'],
+            pace=settings['pace'])
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    return {'plan':plan,'interpreted':settings}
+
+class SocialRenderRequest(BaseModel):
+    clips: list[Clip] = Field(min_length=1,max_length=100)
+    aspect: str = '9:16'
+    framing: str = 'crop'
+
+@app.post('/api/projects/{pid}/social-render')
+def social_render(pid:str,request:SocialRenderRequest):
+    folder=project_dir(pid)
+    try:
+        render_social(folder/'source.mp4',[c.model_dump() for c in request.clips],
+                      folder/'social-output.mp4',aspect=request.aspect,framing=request.framing)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500,'Social export failed') from exc
+    return {'download':f'/api/projects/{pid}/social-download'}
+
+@app.get('/api/projects/{pid}/social-download')
+def social_download(pid:str):
+    path=project_dir(pid)/'social-output.mp4'
+    if not path.is_file():
+        raise HTTPException(404,'Social export not found')
+    return FileResponse(path,filename='frameforge-social.mp4',media_type='video/mp4')
+
+class AutoEditPlanRequest(BaseModel):
+    target_seconds: float = Field(default=30,ge=3,le=180)
+    format: str = 'reels'
+    pace: str = 'dynamic'
+
+@app.post('/api/projects/{pid}/auto-edit/plan')
+def auto_edit_plan(pid:str,request:AutoEditPlanRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        return create_auto_edit_plan(project['scenes'],float(project['metadata']['duration']),
+                                     target_seconds=request.target_seconds,
+                                     format=request.format,pace=request.pace)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+class SpeechCutRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+    min_pause: float = Field(default=0.65,ge=0.1,le=10)
+    padding: float = Field(default=0.18,ge=0,le=2)
+
+@app.post('/api/projects/{pid}/speech-cuts/preview')
+def speech_cut_preview(pid:str,request:SpeechCutRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        clips=plan_speech_cuts(transcript['words'],float(project['metadata']['duration']),
+                               min_pause=request.min_pause,padding=request.padding)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Transcription unavailable') from exc
+    duration=sum(clip['end']-clip['start'] for clip in clips)
+    return {'clips':clips,'source_duration':project['metadata']['duration'],
+            'edited_duration':round(duration,3),'words':len(transcript['words'])}
+
+class AutoCaptionRequest(BaseModel):
+    model: str = Field(default='tiny')
+    language: str|None = None
+    style: str = Field(default='pop')
+    max_words: int = Field(default=4,ge=1,le=12)
+
+@app.post('/api/projects/{pid}/auto-captions')
+def auto_captions(pid:str,request:AutoCaptionRequest):
+    folder=project_dir(pid)
+    if request.style not in ('pop','minimal','bold'):
+        raise HTTPException(422,'Unknown caption style')
+    try:
+        result=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        words=[Word(**w) for w in result['words']]
+        if not words:
+            raise HTTPException(422,'No spoken words detected')
+        save_ass(folder/'captions.ass',words,request.style,request.max_words)
+        render_captioned_video(folder/'source.mp4',folder/'captioned.mp4',folder/'captions.ass')
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Caption processing unavailable or failed') from exc
+    return {'download':f'/api/projects/{pid}/auto-captions/download','word_count':len(words),'language':result['language']}
+
+@app.get('/api/projects/{pid}/auto-captions/download')
+def download_auto_captions(pid:str):
+    path=project_dir(pid)/'captioned.mp4'
+    if not path.is_file():
+        raise HTTPException(404,'Captioned render not found')
+    return FileResponse(path,filename='frameforge-auto-captions.mp4',media_type='video/mp4')
+
+@app.post('/api/projects/{pid}/transcription')
+def transcribe_project(pid:str,model:str='tiny',language:str|None=None):
+    folder=project_dir(pid)
+    try:
+        return transcribe_words(folder/'source.mp4',model=model,language=language)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Source video not found') from exc
+
+@app.get('/api/projects/{pid}/analysis')
+def get_analysis(pid:str,threshold:float=0.30):
+    folder=project_dir(pid)
+    try:
+        return reference_plan(folder/'source.mp4',threshold)
+    except ValueError as e:
+        raise HTTPException(422,str(e)) from e
+    except Exception as e:
+        raise HTTPException(500,'Reference analysis failed') from e
+
+@app.post('/api/projects/{pid}/storyboard')
+def generate_storyboard(pid:str):
+    folder=project_dir(pid)
+    try:
+        plan=reference_plan(folder/'source.mp4')
+        images=extract_contact_sheet_frames(folder/'source.mp4',folder/'storyboard',plan['shots'])
+        plan['preview_frames']=[{'shot_id':plan['shots'][i]['id'],'url':f'/api/projects/{pid}/storyboard/{name}'} for i,name in enumerate(images)]
+        return plan
+    except Exception as e:
+        raise HTTPException(500,'Storyboard generation failed') from e
+
+@app.get('/api/projects/{pid}/storyboard/{filename}')
+def storyboard_frame(pid:str,filename:str):
+    if not re.fullmatch(r'shot-[0-9]{4}\.jpg',filename):
+        raise HTTPException(400,'Invalid frame name')
+    path=project_dir(pid)/'storyboard'/filename
+    if not path.is_file():
+        raise HTTPException(404,'Frame not found')
+    return FileResponse(path,media_type='image/jpeg')
+
+@app.get('/api/projects/{pid}/source')
+def source(pid:str):
+    return FileResponse(project_dir(pid)/'source.mp4',media_type='video/mp4')
+
+@app.post('/api/projects/{pid}/render')
+def export(pid:str,request:RenderRequest):
+    folder=project_dir(pid)
+    try:
+        render(folder/'source.mp4',[c.model_dump() for c in request.clips],folder/'output.mp4')
+    except (ValueError,RuntimeError) as e:
+        raise HTTPException(400,str(e)) from e
+    except Exception as e:
+        raise HTTPException(500,'Render failed; inspect FFmpeg installation') from e
+    return {'download':f'/api/projects/{pid}/download'}
+
+@app.get('/api/projects/{pid}/download')
+def download(pid:str):
+    path=project_dir(pid)/'output.mp4'
+    if not path.exists():
+        raise HTTPException(404,'Render not found')
+    return FileResponse(path,filename='frameforge-export.mp4',media_type='video/mp4')
+
+app.mount('/',StaticFiles(directory=str(Path(__file__).parent.parent/'web'),html=True),name='web')
+)
+
+@app.post('/api/projects/{pid}/recreation/dispatch-reservations')
+def reserve_recreation_dispatch(pid:str,request:DispatchReservationRequest):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        prepared=prepare_shot(blueprint,pid,request.shot_id)
+        reservation=reserve_dispatch(folder,request.idempotency_key,
+                                      request.shot_id,prepared.fingerprint)
+        return {**reservation,'warning':'Reservation only: no provider request or billing'}
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+@app.get('/api/projects/{pid}/recreation/dispatch-reservations/{key}')
+def read_recreation_dispatch(pid:str,key:str):
+    folder=project_dir(pid)
+    try:
+        return get_dispatch(folder,key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Reservation not found') from exc
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/generation-preflight')
 def generation_batch_preflight(pid:str,request:GenerationBatchRequest):
