@@ -72,7 +72,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # ASS transform creates an animated entrance with easing-like scale.
         animated=r'{\\fscx85\\fscy85\\t(0,170,\\fscx100\\fscy100)}'+text
         events.append(f'Dialogue: 0,{_time(group[0].start)},{_time(group[-1].end)},Caption,,0,0,0,,{animated}')
-    return header+'\\n'.join(events)+'\\n'
+    return header+'\n'.join(events)+'\n'
 
 def save_ass(path:Path,words:list[Word],style:str='pop',max_words:int=4):
     path.write_text(to_ass(words,style,max_words),encoding='utf-8')
