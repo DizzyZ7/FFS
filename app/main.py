@@ -13,6 +13,7 @@ from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
 from .recreation import build_recreation_blueprint, revise_blueprint_shot
 from .recreation_render import render_recreation
+from .recreation_export import export_fingerprint
 from .recreation_jobs import shot_fingerprint, pending_recreation_shots
 from .recreation_accept import accept_completed_job
 from . import jobs
@@ -336,6 +337,7 @@ def render_recreated_video(pid:str):
     blueprint=get_recreation_blueprint(pid)
     try:
         render_recreation(folder,blueprint,folder/'recreation-final.mp4')
+        (folder/'recreation-final.fingerprint').write_text(export_fingerprint(blueprint),encoding='ascii')
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError) as exc:
@@ -348,6 +350,9 @@ def download_recreated_video(pid:str):
     output=project_dir(pid)/'recreation-final.mp4'
     if not output.is_file():
         raise HTTPException(404,'Recreated video not rendered')
+    manifest=project_dir(pid)/'recreation-final.fingerprint'
+    if not manifest.is_file() or manifest.read_text(encoding='ascii')!=export_fingerprint(get_recreation_blueprint(pid)):
+        raise HTTPException(409,'Recreation changed; render a new video before downloading')
     return FileResponse(output,media_type='video/mp4',filename='recreation.mp4')
 
 @app.get('/api/projects/{pid}/visual-scores')
