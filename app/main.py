@@ -12,6 +12,7 @@ from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
 from .recreation import build_recreation_blueprint, revise_blueprint_shot
 from .recreation_jobs import shot_fingerprint, pending_recreation_shots
+from .recreation_accept import accept_completed_job
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -316,6 +317,16 @@ def queue_recreation_shot(pid:str,shot_id:str):
                 and existing['status'] in ('queued','running')):
             return existing
     return jobs.enqueue(folder,shot_id,fingerprint=fingerprint)
+
+@app.post('/api/projects/{pid}/recreation/jobs/{job_id}/accept')
+def accept_recreation_job(pid:str,job_id:str):
+    folder=project_dir(pid)
+    try:
+        return accept_completed_job(folder,job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Job or blueprint not found') from exc
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
 
 @app.get('/api/projects/{pid}/visual-scores')
 def visual_scores(pid:str):
