@@ -6,7 +6,6 @@ have reached the vendor. Operator reconciliation is required.
 import json
 import os
 import re
-import uuid
 from pathlib import Path
 
 _KEY=re.compile(r'^[a-zA-Z0-9_-]{8,128}$')
@@ -15,6 +14,22 @@ def _ledger_dir(folder:Path):
     path=folder/'generation-dispatch'
     path.mkdir(exist_ok=True)
     return path
+
+def _read_reservation(path:Path):
+    """Corrupted ledger must never be interpreted as a missing reservation."""
+    try:
+        payload=json.loads(path.read_text(encoding='utf8'))
+    except (UnicodeError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError('Dispatch reservation is unreadable; manual reconciliation required') from exc
+    if (not isinstance(payload,dict)
+            or not isinstance(payload.get('idempotency_key'),str)
+            or not isinstance(payload.get('shot_id'),str)
+            or not isinstance(payload.get('fingerprint'),str)
+            or payload.get('state')!='reserved'):
+        raise ValueError('Dispatch reservation is invalid; manual reconciliation required')
+    if payload['idempotency_key']!=path.stem:
+        raise ValueError('Dispatch reservation key mismatch; manual reconciliation required')
+    return payload
 
 def reserve_dispatch(folder:Path,key:str,shot_id:str,fingerprint:str):
     if not isinstance(key,str) or not _KEY.fullmatch(key):
@@ -33,7 +48,7 @@ def reserve_dispatch(folder:Path,key:str,shot_id:str,fingerprint:str):
             os.fsync(output.fileno())
         return {'created':True,**payload}
     except FileExistsError:
-        existing=json.loads(path.read_text(encoding='utf8'))
+        existing=_read_reservation(path)
         if existing['shot_id']!=shot_id or existing['fingerprint']!=fingerprint:
             raise ValueError('Idempotency key reused for a different shot or revision')
         return {'created':False,**existing}
@@ -44,4 +59,4 @@ def get_dispatch(folder:Path,key:str):
     path=folder/'generation-dispatch'/(key+'.json')
     if not path.is_file():
         raise FileNotFoundError(key)
-    return json.loads(path.read_text(encoding='utf8'))
+    return _read_reservation(path)
