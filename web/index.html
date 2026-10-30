@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FFS — Video Studio</title>
 <style>
-:root{font-family:system-ui;color-scheme:dark;background:#10121b;color:#e9eaf5}body{margin:0}header{padding:20px 32px;background:#191c2a;border-bottom:1px solid #34384d}main{max-width:1100px;margin:32px auto;padding:0 20px}.panel{background:#1a1e2b;padding:24px;border:1px solid #353b51;border-radius:18px;margin:18px 0}button{border:0;background:#8167ee;color:white;padding:12px 18px;border-radius:10px;cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}input{margin:12px 0}video{width:100%;max-height:460px;background:#000;border-radius:12px}#clips{display:flex;gap:10px;flex-wrap:wrap}.clip{background:#30364a;padding:14px;border-radius:10px}.clip input{width:75px;background:#161925;color:white;border:1px solid #515a77;padding:6px}small{color:#a7afc5}a{color:#a9a0ff}#status{white-space:pre-wrap}#storyboard{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.shot{background:#252b3d;border:1px solid #404860;border-radius:12px;overflow:hidden}.shot img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a0c14}.shot figcaption{padding:9px;font-size:12px;color:#c4c9df}.shot{margin:0}</style></head>
+:root{font-family:system-ui;color-scheme:dark;background:#10121b;color:#e9eaf5}body{margin:0}header{padding:20px 32px;background:#191c2a;border-bottom:1px solid #34384d}main{max-width:1100px;margin:32px auto;padding:0 20px}.panel{background:#1a1e2b;padding:24px;border:1px solid #353b51;border-radius:18px;margin:18px 0}button{border:0;background:#8167ee;color:white;padding:12px 18px;border-radius:10px;cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}input{margin:12px 0}video{width:100%;max-height:460px;background:#000;border-radius:12px}#clips{display:flex;gap:10px;flex-wrap:wrap}.clip{background:#30364a;padding:14px;border-radius:10px}.clip input{width:75px;background:#161925;color:white;border:1px solid #515a77;padding:6px}small{color:#a7afc5}a{color:#a9a0ff}#status{white-space:pre-wrap}#storyboard{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}.shot{background:#252b3d;border:1px solid #404860;border-radius:12px;overflow:hidden}.shot img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a0c14}.shot figcaption{padding:9px;font-size:12px;color:#c4c9df}.shot{margin:0}.shot textarea{display:block;box-sizing:border-box;width:calc(100% - 16px);margin:8px;background:#111521;color:#f1f2ff;border:1px solid #4b5573;border-radius:6px;padding:8px;resize:vertical;min-height:70px}.shot .subject{display:block;box-sizing:border-box;width:calc(100% - 16px);margin:8px;background:#111521;color:#f1f2ff;border:1px solid #4b5573;border-radius:6px;padding:8px}.shot-actions{margin:12px 0}</style></head>
 <body><header><strong>FFS / FrameForge Studio</strong> <small>v0.1 · Local-first reference editor</small></header>
 <main><h1>Reference Studio</h1><p>Загрузи ролик, найди склейки, отредактируй последовательность сцен и экспортируй видео.</p>
 <section class="panel"><h2>1. Исходное видео</h2><input id="file" type="file" accept="video/*"><button id="upload">Анализировать</button><p id="status" role="status"></p></section>
-<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><p><button id="storyboard-button">Создать раскадровку</button></p><div id="storyboard" aria-live="polite"></div><p><button id="save">Сохранить монтаж</button> <button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
+<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><p><button id="storyboard-button">Создать раскадровку</button></p><div id="storyboard" aria-live="polite"></div><div class="shot-actions"><button id="save-shots" hidden>Сохранить промпты сцен</button></div><p><button id="save">Сохранить монтаж</button> <button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
 </main><script>
 let project=null;
 const el=id=>document.getElementById(id);
@@ -17,7 +17,7 @@ el('upload').onclick=async()=>{
  try{const r=await fetch('/api/projects',{method:'POST',body});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));
  project=data;el('editor').hidden=false;el('preview').src='/api/projects/'+data.id+'/source';el('metadata').textContent='Длительность: '+data.metadata.duration.toFixed(1)+' с · '+data.metadata.width+'×'+data.metadata.height;
  const box=el('clips');box.replaceChildren();(data.timeline||data.scenes).forEach((clip,i)=>{const div=document.createElement('div');div.className='clip';div.innerHTML='<strong>Сцена '+(i+1)+'</strong><div>От <input type="number" step="0.01" class="start"> До <input type="number" step="0.01" class="end"></div><label><input type="checkbox" class="include" checked> Включить</label>';div.querySelector('.start').value=clip.start;div.querySelector('.end').value=clip.end;box.append(div)});
- el('storyboard').replaceChildren();el('download').hidden=true;status('Найдено сцен: '+data.scenes.length)
+ el('storyboard').replaceChildren();el('save-shots').hidden=true;el('download').hidden=true;status('Найдено сцен: '+data.scenes.length)
  }catch(e){status('Ошибка: '+e.message)}finally{el('upload').disabled=false}
 };
 el('storyboard-button').onclick=async()=>{
@@ -26,17 +26,32 @@ el('storyboard-button').onclick=async()=>{
  try{
    const r=await fetch('/api/projects/'+project.id+'/storyboard',{method:'POST'});
    const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));
-   const grid=el('storyboard');grid.replaceChildren();
+   const grid=el('storyboard');grid.replaceChildren();const saved=await fetch('/api/projects/'+project.id+'/shot-plan');const savedPlan=saved.ok?await saved.json():data;const notes=new Map(savedPlan.shots.map(s=>[s.id,s]));
    for(const frame of data.preview_frames){
      const shot=data.shots.find(s=>s.id===frame.shot_id);if(!shot)continue;
      const figure=document.createElement('figure');figure.className='shot';
      const img=document.createElement('img');img.src=frame.url;img.alt='Кадр '+frame.shot_id;img.loading='lazy';
      const caption=document.createElement('figcaption');
      caption.textContent=frame.shot_id+' · '+shot.start.toFixed(2)+'–'+shot.end.toFixed(2)+' с';
-     figure.append(img,caption);grid.append(figure);
+     const note=notes.get(frame.shot_id)||shot;const prompt=document.createElement('textarea');prompt.placeholder='Промпт сцены (для будущей AI-генерации)';prompt.maxLength=2000;prompt.value=note.prompt||'';prompt.className='prompt';const subject=document.createElement('input');subject.className='subject';subject.placeholder='ID персонажей через запятую';subject.value=(note.subject_ids||[]).join(',');subject.setAttribute('aria-label','ID персонажей '+frame.shot_id);figure.dataset.shotId=frame.shot_id;figure.append(img,caption,prompt,subject);grid.append(figure);
    }
-   status('Раскадровка готова: '+data.preview_frames.length+' кадров');
+   el('save-shots').hidden=false;status('Раскадровка готова: '+data.preview_frames.length+' кадров');
  }catch(e){status('Ошибка раскадровки: '+e.message)}
+ finally{button.disabled=false}
+};
+el('save-shots').onclick=async()=>{
+ if(!project)return;
+ const button=el('save-shots');button.disabled=true;
+ try{
+   const shots=[...document.querySelectorAll('#storyboard .shot')].map(x=>({
+     shot_id:x.dataset.shotId,
+     prompt:x.querySelector('.prompt').value,
+     subject_ids:x.querySelector('.subject').value.split(',').map(v=>v.trim()).filter(Boolean)
+   }));
+   const r=await fetch('/api/projects/'+project.id+'/shot-plan',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({shots})});
+   const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));
+   status('Промпты сохранены · ревизия '+data.revision);
+ }catch(e){status('Ошибка сохранения сцен: '+e.message)}
  finally{button.disabled=false}
 };
 function collectClips(){return [...document.querySelectorAll('.clip')].filter(x=>x.querySelector('.include').checked).map(x=>({start:Number(x.querySelector('.start').value),end:Number(x.querySelector('.end').value)}))}
