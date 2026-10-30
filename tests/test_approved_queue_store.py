@@ -28,5 +28,6 @@ def test_legacy_key_cannot_create_sqlite_job(tmp_path):
         reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
     import sqlite3
     with sqlite3.connect(tmp_path/'approved-queue.sqlite3') as conn:
-        count=conn.execute('SELECT COUNT(*) FROM approved_jobs').fetchone()[0]
-    assert count==0
+        table=conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='approved_jobs'").fetchone()
+        if table is not None:
+            assert conn.execute('SELECT COUNT(*) FROM approved_jobs').fetchone()[0]==0
