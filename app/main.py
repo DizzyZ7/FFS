@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
+from .recreation import build_recreation_blueprint, revise_blueprint_shot
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -246,6 +247,52 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class RecreationBlueprintRequest(BaseModel):
+    subject_ids: list[str] = Field(default_factory=list,max_length=5)
+    instructions: str = Field(default='',max_length=2000)
+
+class RecreationShotRevision(BaseModel):
+    instructions: str|None = Field(default=None,max_length=2000)
+    subject_ids: list[str]|None = Field(default=None,max_length=5)
+
+@app.post('/api/projects/{pid}/recreation/blueprint')
+def create_recreation_blueprint(pid:str,request:RecreationBlueprintRequest):
+    folder=project_dir(pid)
+    shot_path=folder/'shot-plan.json'
+    plan=json.loads(shot_path.read_text(encoding='utf8')) if shot_path.is_file() else reference_plan(folder/'source.mp4')
+    try:
+        blueprint=build_recreation_blueprint(plan,request.subject_ids,request.instructions)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    dest=folder/'recreation-blueprint.json'
+    temp=folder/'recreation-blueprint.json.tmp'
+    temp.write_text(json.dumps(blueprint,ensure_ascii=False,indent=2),encoding='utf8')
+    temp.replace(dest)
+    return blueprint
+
+@app.get('/api/projects/{pid}/recreation/blueprint')
+def get_recreation_blueprint(pid:str):
+    path=project_dir(pid)/'recreation-blueprint.json'
+    if not path.is_file():
+        raise HTTPException(404,'Recreation blueprint not created')
+    return json.loads(path.read_text(encoding='utf8'))
+
+@app.patch('/api/projects/{pid}/recreation/shots/{shot_id}')
+def revise_recreation_shot(pid:str,shot_id:str,request:RecreationShotRevision):
+    folder=project_dir(pid)
+    path=folder/'recreation-blueprint.json'
+    if not path.is_file():
+        raise HTTPException(404,'Recreation blueprint not created')
+    try:
+        revised=revise_blueprint_shot(json.loads(path.read_text(encoding='utf8')),
+            shot_id,instructions=request.instructions,subject_ids=request.subject_ids)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    temp=folder/'recreation-blueprint.json.tmp'
+    temp.write_text(json.dumps(revised,ensure_ascii=False,indent=2),encoding='utf8')
+    temp.replace(path)
+    return revised
 
 class RankedAutoEditRequest(BaseModel):
     model: str = 'tiny'
