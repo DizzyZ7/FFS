@@ -117,6 +117,11 @@ def save_shot_plan(pid:str,request:ShotPlanRequest):
             raise HTTPException(422,'Unknown shot ID')
         if len(set(item.subject_ids))!=len(item.subject_ids) or any(not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}',x) for x in item.subject_ids):
             raise HTTPException(422,'Invalid subject IDs')
+    subject_manifest=folder/'subjects.json'
+    known_subjects={x['id'] for x in json.loads(subject_manifest.read_text(encoding='utf8')).get('subjects',[])} if subject_manifest.is_file() else set()
+    for item in request.shots:
+        if any(subject_id not in known_subjects for subject_id in item.subject_ids):
+            raise HTTPException(422,'Unknown subject ID')
     for item in request.shots:
         by_id[item.shot_id]['prompt']=item.prompt
         by_id[item.shot_id]['subject_ids']=item.subject_ids
