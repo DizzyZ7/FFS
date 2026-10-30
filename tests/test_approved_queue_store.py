@@ -31,3 +31,27 @@ def test_legacy_key_cannot_create_sqlite_job(tmp_path):
         table=conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='approved_jobs'").fetchone()
         if table is not None:
             assert conn.execute('SELECT COUNT(*) FROM approved_jobs').fetchone()[0]==0
+
+@pytest.mark.parametrize('corruption',[
+    '{',
+    '{"id":"wrong","shot_id":"shot-0001","fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"queued"}',
+    '[]'
+])
+def test_corrupt_sqlite_job_fails_closed(tmp_path,corruption):
+    import sqlite3
+    first=reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
+    with sqlite3.connect(tmp_path/'approved-queue.sqlite3') as conn:
+        conn.execute('UPDATE approved_jobs SET job_json=? WHERE idempotency_key=?',
+                     (corruption,'key-12345678'))
+    with pytest.raises(ValueError,match='manual reconciliation'):
+        reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
+    assert first['job']['id']
+
+def test_concurrent_sqlite_reservations_return_one_job(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    def submit(_):
+        return reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results=list(executor.map(submit,range(12)))
+    assert len({item['job']['id'] for item in results})==1
+    assert sum(item['created'] for item in results)==1
