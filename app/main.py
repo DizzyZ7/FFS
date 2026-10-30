@@ -24,7 +24,15 @@ class RenderRequest(BaseModel):
     clips: list[Clip]
 
 class ShotNote(BaseModel):
-    shot_id: str = Field(pattern=r'^shot-[0-9]{4}
+    shot_id: str = Field(pattern=r'^shot-[0-9]{4}$')
+    prompt: str = Field(default='', max_length=2000)
+    subject_ids: list[str] = Field(default_factory=list, max_length=5)
+
+class ShotPlanRequest(BaseModel):
+    shots: list[ShotNote] = Field(max_length=100)
+
+class TimelineRequest(BaseModel):
+    clips: list[Clip] = Field(max_length=100)
 
 def project_dir(pid):
     if not re.fullmatch(r'[0-9a-f]{32}',pid):
