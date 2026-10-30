@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
@@ -21,6 +21,9 @@ class Clip(BaseModel):
 
 class RenderRequest(BaseModel):
     clips: list[Clip]
+
+class TimelineRequest(BaseModel):
+    clips: list[Clip] = Field(max_length=100)
 
 def project_dir(pid):
     if not re.fullmatch(r'[0-9a-f]{32}',pid):
@@ -54,7 +57,7 @@ async def create_project(file:UploadFile=File(...)):
         if meta['duration']<=0 or meta['duration']>600:
             raise HTTPException(400,'Video duration must be 0–600 seconds')
         scenes=detect_scenes(source,meta['duration'])
-        project={'id':pid,'filename':Path(file.filename or 'video.mp4').name,'metadata':meta,'scenes':scenes}
+        project={'id':pid,'filename':Path(file.filename or 'video.mp4').name,'metadata':meta,'scenes':scenes,'timeline':scenes,'revision':1}
         (folder/'project.json').write_text(json.dumps(project),encoding='utf8')
         return project
     except HTTPException:
@@ -67,6 +70,22 @@ async def create_project(file:UploadFile=File(...)):
 @app.get('/api/projects/{pid}')
 def get_project(pid:str):
     return json.loads((project_dir(pid)/'project.json').read_text(encoding='utf8'))
+
+@app.put('/api/projects/{pid}/timeline')
+def save_timeline(pid:str,request:TimelineRequest):
+    folder=project_dir(pid)
+    path=folder/'project.json'
+    project=json.loads(path.read_text(encoding='utf8'))
+    duration=float(project['metadata']['duration'])
+    clips=[c.model_dump() for c in request.clips]
+    if any(not (0<=c['start']<c['end']<=duration+0.01) for c in clips):
+        raise HTTPException(422,'Invalid timeline bounds')
+    project['timeline']=clips
+    project['revision']=project.get('revision',1)+1
+    temp=folder/'project.json.tmp'
+    temp.write_text(json.dumps(project),encoding='utf8')
+    temp.replace(path)
+    return {'revision':project['revision'],'timeline':clips}
 
 @app.get('/api/projects/{pid}/source')
 def source(pid:str):
