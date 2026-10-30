@@ -21,6 +21,7 @@ from .worker import execute_job
 from .local_demo_provider import LocalReferenceDemoProvider
 from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
+from .recreation_guidance import build_shot_guidance
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -388,6 +389,18 @@ def run_recreation_local_demo(pid:str,job_id:str):
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
         raise HTTPException(503,'Local demo render unavailable') from exc
+
+@app.get('/api/projects/{pid}/recreation/guidance')
+def recreation_shot_guidance(pid:str,include_audio:bool=False):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    onsets=[]
+    if include_audio:
+        try:
+            onsets=audio_onsets(folder/'source.mp4')['onsets']
+        except (subprocess.SubprocessError,OSError,ValueError) as exc:
+            raise HTTPException(503,'Audio analysis unavailable') from exc
+    return build_shot_guidance(blueprint,audio_onsets=onsets)
 
 @app.get('/api/projects/{pid}/reference/audio-analysis')
 def analyze_reference_audio(pid:str):
