@@ -23,8 +23,10 @@ from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
-from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
-from .generation_preflight import prepare_generation_batch, select_shots_for_estimate
+from .generation_budget import estimate_generation_cost, validate_paid_generation_approval, select_shots_for_estimate
+from .generation_preflight import prepare_generation_batch
+from .generation_payload import prepare_shot
+from .generation_dispatch import reserve_dispatch, get_dispatch
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -406,6 +408,32 @@ class GenerationBatchRequest(BaseModel):
     price_per_second_usd: float = Field(ge=0,le=1000)
     approved: bool = False
     max_budget_usd: float|None = Field(default=None,ge=0,le=1000000)
+
+class DispatchReservationRequest(BaseModel):
+    shot_id: str = Field(min_length=1,max_length=128)
+    idempotency_key: str = Field(min_length=8,max_length=128,pattern=r'^[a-zA-Z0-9_-]+$')
+
+@app.post('/api/projects/{pid}/recreation/dispatch-reservations')
+def reserve_recreation_dispatch(pid:str,request:DispatchReservationRequest):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        prepared=prepare_shot(blueprint,pid,request.shot_id)
+        reservation=reserve_dispatch(folder,request.idempotency_key,
+                                      request.shot_id,prepared.fingerprint)
+        return {**reservation,'warning':'Reservation only: no provider request or billing'}
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+@app.get('/api/projects/{pid}/recreation/dispatch-reservations/{key}')
+def read_recreation_dispatch(pid:str,key:str):
+    folder=project_dir(pid)
+    try:
+        return get_dispatch(folder,key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Reservation not found') from exc
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/generation-preflight')
 def generation_batch_preflight(pid:str,request:GenerationBatchRequest):
