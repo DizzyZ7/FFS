@@ -26,7 +26,7 @@ def collect_recreation_clips(folder:Path,blueprint:dict):
         clips.append((path,duration))
     return clips
 
-def render_recreation(folder:Path,blueprint:dict,output:Path):
+def render_recreation(folder:Path,blueprint:dict,output:Path,*,preserve_audio=False):
     clips=collect_recreation_clips(folder,blueprint)
     output=output.resolve()
     if not output.is_relative_to(folder.resolve()):
@@ -42,9 +42,16 @@ def render_recreation(folder:Path,blueprint:dict,output:Path):
             f'tpad=stop_mode=clone:stop_duration={duration},trim=duration={duration},setpts=PTS-STARTPTS[v{index}]')
     filters.append(''.join(f'[v{i}]' for i in range(len(clips)))+
                    f'concat=n={len(clips)}:v=1:a=0[outv]')
+    silent_output=output.with_name(output.stem+'.silent.mp4') if preserve_audio else output
     args=['ffmpeg','-hide_banner','-nostdin','-loglevel','error','-y',*inputs,
           '-filter_complex',';'.join(filters),'-map','[outv]',
           '-c:v','libx264','-preset','veryfast','-crf','23',
-          '-movflags','+faststart',str(output)]
-    subprocess.run(args,check=True,capture_output=True,text=True,timeout=1800)
+          '-movflags','+faststart',str(silent_output)]
+    try:
+        subprocess.run(args,check=True,capture_output=True,text=True,timeout=1800)
+        if preserve_audio:
+            mux_reference_audio(folder,silent_output,output)
+    finally:
+        if preserve_audio:
+            silent_output.unlink(missing_ok=True)
     return output
