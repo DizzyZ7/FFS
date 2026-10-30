@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render
+from .reference import reference_plan, extract_contact_sheet_frames
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
 ROOT.mkdir(parents=True,exist_ok=True)
@@ -86,6 +87,36 @@ def save_timeline(pid:str,request:TimelineRequest):
     temp.write_text(json.dumps(project),encoding='utf8')
     temp.replace(path)
     return {'revision':project['revision'],'timeline':clips}
+
+@app.get('/api/projects/{pid}/analysis')
+def get_analysis(pid:str,threshold:float=0.30):
+    folder=project_dir(pid)
+    try:
+        return reference_plan(folder/'source.mp4',threshold)
+    except ValueError as e:
+        raise HTTPException(422,str(e)) from e
+    except Exception as e:
+        raise HTTPException(500,'Reference analysis failed') from e
+
+@app.post('/api/projects/{pid}/storyboard')
+def generate_storyboard(pid:str):
+    folder=project_dir(pid)
+    try:
+        plan=reference_plan(folder/'source.mp4')
+        images=extract_contact_sheet_frames(folder/'source.mp4',folder/'storyboard',plan['shots'])
+        plan['preview_frames']=[{'shot_id':plan['shots'][i]['id'],'url':f'/api/projects/{pid}/storyboard/{name}'} for i,name in enumerate(images)]
+        return plan
+    except Exception as e:
+        raise HTTPException(500,'Storyboard generation failed') from e
+
+@app.get('/api/projects/{pid}/storyboard/{filename}')
+def storyboard_frame(pid:str,filename:str):
+    if not re.fullmatch(r'shot-[0-9]{4}\\.jpg',filename):
+        raise HTTPException(400,'Invalid frame name')
+    path=project_dir(pid)/'storyboard'/filename
+    if not path.is_file():
+        raise HTTPException(404,'Frame not found')
+    return FileResponse(path,media_type='image/jpeg')
 
 @app.get('/api/projects/{pid}/source')
 def source(pid:str):
