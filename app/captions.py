@@ -3,6 +3,8 @@
 Input transcript is explicit; speech recognition will be integrated separately.
 """
 import math
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,10 +72,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for group in group_words(words,max_words=max_words):
         text=' '.join(_ass_escape(w.text) for w in group)
         # ASS transform creates an animated entrance with easing-like scale.
-        animated=r'{\\fscx85\\fscy85\\t(0,170,\\fscx100\\fscy100)}'+text
+        animated=r'{\fscx85\fscy85\t(0,170,\fscx100\fscy100)}'+text
         events.append(f'Dialogue: 0,{_time(group[0].start)},{_time(group[-1].end)},Caption,,0,0,0,,{animated}')
     return header+'\n'.join(events)+'\n'
 
 def save_ass(path:Path,words:list[Word],style:str='pop',max_words:int=4):
     path.write_text(to_ass(words,style,max_words),encoding='utf-8')
     return path
+
+def render_captioned_video(source:Path,output:Path,subtitle:Path,timeout:int=600):
+    """Burn ASS captions into a video with FFmpeg/libass; preserve source audio."""
+    if not source.is_file() or not subtitle.is_file():
+        raise FileNotFoundError('Source video or subtitle file missing')
+    if not shutil.which('ffmpeg'):
+        raise RuntimeError('FFmpeg is not installed')
+    # Use cwd to avoid filtergraph path quoting issues across platforms.
+    args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(source.resolve()),
+          '-vf','ass='+subtitle.name,'-c:v','libx264','-preset','veryfast',
+          '-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',str(output.resolve())]
+    proc=subprocess.run(args,cwd=subtitle.parent,capture_output=True,text=True,timeout=timeout)
+    if proc.returncode!=0 or not output.is_file():
+        raise RuntimeError('Caption rendering failed: '+proc.stderr[-500:])
+    return output
