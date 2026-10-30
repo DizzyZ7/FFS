@@ -20,3 +20,9 @@ def test_styles():
         assert 'Style: Caption' in to_ass([Word(0,1,'Hello')],style)
     with pytest.raises(ValueError):
         to_ass([],style='unknown')
+
+def test_ass_animation_and_multiline():
+    ass=to_ass([Word(0,0.3,'hello'),Word(1,1.4,'world')])
+    assert ass.count('Dialogue:')==2
+    assert 't(0,170' in ass
+    assert ass.splitlines()[-1].startswith('Dialogue:')
