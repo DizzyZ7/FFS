@@ -23,6 +23,7 @@ from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
+from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -390,6 +391,35 @@ def run_recreation_local_demo(pid:str,job_id:str):
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
         raise HTTPException(503,'Local demo render unavailable') from exc
+
+class GenerationCostRequest(BaseModel):
+    price_per_second_usd: float = Field(ge=0,le=1000)
+
+class GenerationApprovalRequest(GenerationCostRequest):
+    approved: bool = False
+    max_budget_usd: float = Field(ge=0,le=1000000)
+
+@app.post('/api/projects/{pid}/recreation/cost-estimate')
+def estimate_recreation_cost(pid:str,request:GenerationCostRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        return estimate_generation_cost(blueprint,request.price_per_second_usd).__dict__
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@app.post('/api/projects/{pid}/recreation/cost-approval-check')
+def check_recreation_budget(pid:str,request:GenerationApprovalRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        estimate=estimate_generation_cost(blueprint,request.price_per_second_usd)
+        validate_paid_generation_approval(approved=request.approved,
+            estimated_usd=estimate.estimated_usd,max_budget_usd=request.max_budget_usd)
+        return {'approved':True,'estimate':estimate.__dict__,
+                'warning':'Preflight check only: no paid generation was initiated'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
 
 @app.get('/api/projects/{pid}/recreation/guidance')
 def recreation_shot_guidance(pid:str,include_audio:bool=False,include_motion:bool=False):
