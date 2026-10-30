@@ -12,6 +12,7 @@ from .media import probe, detect_scenes, render
 from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
 from .transcription import transcribe_words
+from .speech_cuts import plan_speech_cuts
 from .captions import Word, save_ass, render_captioned_video
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
@@ -242,6 +243,28 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class SpeechCutRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+    min_pause: float = Field(default=0.65,ge=0.1,le=10)
+    padding: float = Field(default=0.18,ge=0,le=2)
+
+@app.post('/api/projects/{pid}/speech-cuts/preview')
+def speech_cut_preview(pid:str,request:SpeechCutRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        clips=plan_speech_cuts(transcript['words'],float(project['metadata']['duration']),
+                               min_pause=request.min_pause,padding=request.padding)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Transcription unavailable') from exc
+    duration=sum(clip['end']-clip['start'] for clip in clips)
+    return {'clips':clips,'source_duration':project['metadata']['duration'],
+            'edited_duration':round(duration,3),'words':len(transcript['words'])}
 
 class AutoCaptionRequest(BaseModel):
     model: str = Field(default='tiny')
