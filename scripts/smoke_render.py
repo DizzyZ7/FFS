@@ -1,6 +1,8 @@
 """End-to-end media smoke test using a synthetic video (no external assets)."""
 import tempfile
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.media import run, probe, detect_scenes, render
 
 def main():
