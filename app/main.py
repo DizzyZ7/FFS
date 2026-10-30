@@ -13,7 +13,7 @@ from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
-from .auto_edit import create_auto_edit_plan
+from .auto_edit import create_auto_edit_plan, create_ranked_auto_edit_plan
 from .edit_instructions import parse_edit_request
 from .highlights import rank_highlights
 from .captions import Word, save_ass, render_captioned_video
@@ -246,6 +246,30 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class RankedAutoEditRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+    target_seconds: float = Field(default=30,ge=3,le=180)
+    format: str = 'reels'
+    pace: str = 'dynamic'
+
+@app.post('/api/projects/{pid}/auto-edit/ranked-plan')
+def ranked_auto_edit_plan(pid:str,request:RankedAutoEditRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        ranked=rank_highlights(project['scenes'],transcript['words'],
+                               duration=float(project['metadata']['duration']))
+        plan=create_ranked_auto_edit_plan(ranked,float(project['metadata']['duration']),
+                 target_seconds=request.target_seconds,format=request.format,pace=request.pace)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Speech analysis unavailable') from exc
+    return {'plan':plan,'ranked_scenes':ranked,
+            'warning':'Highlight ranking is heuristic; inspect before export'}
 
 class HighlightRequest(BaseModel):
     model: str = 'tiny'
