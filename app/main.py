@@ -111,7 +111,7 @@ def generate_storyboard(pid:str):
 
 @app.get('/api/projects/{pid}/storyboard/{filename}')
 def storyboard_frame(pid:str,filename:str):
-    if not re.fullmatch(r'shot-[0-9]{4}\\.jpg',filename):
+    if not re.fullmatch(r'shot-[0-9]{4}\.jpg',filename):
         raise HTTPException(400,'Invalid frame name')
     path=project_dir(pid)/'storyboard'/filename
     if not path.is_file():
