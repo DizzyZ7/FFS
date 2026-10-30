@@ -23,6 +23,14 @@ class Clip(BaseModel):
 class RenderRequest(BaseModel):
     clips: list[Clip]
 
+class ShotNote(BaseModel):
+    shot_id: str = Field(pattern=r'^shot-[0-9]{4}$')
+    prompt: str = Field(default='', max_length=2000)
+    subject_ids: list[str] = Field(default_factory=list, max_length=5)
+
+class ShotPlanRequest(BaseModel):
+    shots: list[ShotNote] = Field(max_length=100)
+
 class TimelineRequest(BaseModel):
     clips: list[Clip] = Field(max_length=100)
 
@@ -87,6 +95,36 @@ def save_timeline(pid:str,request:TimelineRequest):
     temp.write_text(json.dumps(project),encoding='utf8')
     temp.replace(path)
     return {'revision':project['revision'],'timeline':clips}
+
+@app.get('/api/projects/{pid}/shot-plan')
+def get_shot_plan(pid:str):
+    folder=project_dir(pid)
+    path=folder/'shot-plan.json'
+    if path.is_file():
+        return json.loads(path.read_text(encoding='utf8'))
+    return reference_plan(folder/'source.mp4')
+
+@app.put('/api/projects/{pid}/shot-plan')
+def save_shot_plan(pid:str,request:ShotPlanRequest):
+    folder=project_dir(pid)
+    path=folder/'shot-plan.json'
+    plan=json.loads(path.read_text(encoding='utf8')) if path.is_file() else reference_plan(folder/'source.mp4')
+    by_id={shot['id']:shot for shot in plan['shots']}
+    if len(request.shots)!=len({shot.shot_id for shot in request.shots}):
+        raise HTTPException(422,'Duplicate shot IDs')
+    for item in request.shots:
+        if item.shot_id not in by_id:
+            raise HTTPException(422,'Unknown shot ID')
+        if len(set(item.subject_ids))!=len(item.subject_ids) or any(not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}',x) for x in item.subject_ids):
+            raise HTTPException(422,'Invalid subject IDs')
+    for item in request.shots:
+        by_id[item.shot_id]['prompt']=item.prompt
+        by_id[item.shot_id]['subject_ids']=item.subject_ids
+    plan['revision']=plan.get('revision',0)+1
+    temp=folder/'shot-plan.json.tmp'
+    temp.write_text(json.dumps(plan),encoding='utf8')
+    temp.replace(path)
+    return plan
 
 @app.get('/api/projects/{pid}/subjects')
 def list_subjects(pid:str):
