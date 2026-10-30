@@ -30,3 +30,14 @@ def test_corrupt_reservation_fails_closed(tmp_path,bad_content):
     with pytest.raises(ValueError,match='manual reconciliation'):
         get_dispatch(tmp_path,'key-12345678')
     assert path.read_text()==bad_content
+
+@pytest.mark.parametrize('record',[
+    '{"idempotency_key":"key-12345678","shot_id":"shot-0001","fingerprint":"invalid","state":"reserved"}',
+    '{"idempotency_key":"key-12345678","shot_id":"","fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","state":"reserved"}'
+])
+def test_invalid_ledger_identity_fails_closed(tmp_path,record):
+    directory=tmp_path/'generation-dispatch'
+    directory.mkdir()
+    (directory/'key-12345678.json').write_text(record)
+    with pytest.raises(ValueError,match='manual reconciliation'):
+        reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
