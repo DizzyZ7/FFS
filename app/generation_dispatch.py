@@ -25,6 +25,8 @@ def _read_reservation(path:Path):
             or not isinstance(payload.get('idempotency_key'),str)
             or not isinstance(payload.get('shot_id'),str)
             or not isinstance(payload.get('fingerprint'),str)
+            or not re.fullmatch(r'[0-9a-f]{64}',payload['fingerprint'])
+            or not payload['shot_id']
             or payload.get('state')!='reserved'):
         raise ValueError('Dispatch reservation is invalid; manual reconciliation required')
     if payload['idempotency_key']!=path.stem:
