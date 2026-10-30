@@ -27,6 +27,7 @@ from .generation_budget import estimate_generation_cost, validate_paid_generatio
 from .generation_preflight import prepare_generation_batch
 from .generation_payload import prepare_shot
 from .generation_dispatch import reserve_dispatch, get_dispatch
+from .approved_generation_queue import queue_approved_shot
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -412,6 +413,28 @@ class GenerationBatchRequest(BaseModel):
 class DispatchReservationRequest(BaseModel):
     shot_id: str = Field(min_length=1,max_length=128)
     idempotency_key: str = Field(min_length=8,max_length=128,pattern=r'^[a-zA-Z0-9_-]+$')
+
+class ApprovedQueueRequest(BaseModel):
+    shot_id: str = Field(min_length=1,max_length=128)
+    idempotency_key: str = Field(min_length=8,max_length=128,pattern=r'^[a-zA-Z0-9_-]+$')
+    price_per_second_usd: float = Field(ge=0,le=1000)
+    approved: bool
+    max_budget_usd: float = Field(ge=0,le=1000000)
+
+@app.post('/api/projects/{pid}/recreation/approved-queue')
+def enqueue_approved_recreation_shot(pid:str,request:ApprovedQueueRequest):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        result=queue_approved_shot(
+            folder,blueprint,pid,request.shot_id,request.idempotency_key,
+            price_per_second_usd=request.price_per_second_usd,
+            approved=request.approved,max_budget_usd=request.max_budget_usd)
+        return {**result,'warning':'Local queue only: no paid provider is called'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/dispatch-reservations')
 def reserve_recreation_dispatch(pid:str,request:DispatchReservationRequest):
