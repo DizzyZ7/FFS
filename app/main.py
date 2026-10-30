@@ -23,7 +23,8 @@ from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
-from .generation_budget import estimate_generation_cost, validate_paid_generation_approval, select_shots_for_estimate
+from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
+from .generation_preflight import prepare_generation_batch, select_shots_for_estimate
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -399,6 +400,28 @@ class GenerationCostRequest(BaseModel):
 class GenerationApprovalRequest(GenerationCostRequest):
     approved: bool = False
     max_budget_usd: float = Field(ge=0,le=1000000)
+
+class GenerationBatchRequest(BaseModel):
+    shot_ids: list[str] = Field(min_length=1,max_length=100)
+    price_per_second_usd: float = Field(ge=0,le=1000)
+    approved: bool = False
+    max_budget_usd: float|None = Field(default=None,ge=0,le=1000000)
+
+@app.post('/api/projects/{pid}/recreation/generation-preflight')
+def generation_batch_preflight(pid:str,request:GenerationBatchRequest):
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        batch=prepare_generation_batch(blueprint,pid,request.shot_ids,
+                price_per_second_usd=request.price_per_second_usd,
+                approved=request.approved,max_budget_usd=request.max_budget_usd)
+        return {'shot_ids':batch.shot_ids,'fingerprints':batch.fingerprints,
+                'estimated_usd':batch.estimated_usd,
+                'total_seconds':batch.total_seconds,'approved':batch.approved,
+                'warning':'Preflight only; no external generation or billing occurs'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except (ValueError,TypeError) as exc:
+        raise HTTPException(422,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/cost-estimate')
 def estimate_recreation_cost(pid:str,request:GenerationCostRequest):
