@@ -23,7 +23,7 @@ from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
-from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
+from .generation_budget import estimate_generation_cost, validate_paid_generation_approval, select_shots_for_estimate
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -394,6 +394,7 @@ def run_recreation_local_demo(pid:str,job_id:str):
 
 class GenerationCostRequest(BaseModel):
     price_per_second_usd: float = Field(ge=0,le=1000)
+    shot_ids: list[str]|None = Field(default=None,max_length=100)
 
 class GenerationApprovalRequest(GenerationCostRequest):
     approved: bool = False
@@ -403,7 +404,8 @@ class GenerationApprovalRequest(GenerationCostRequest):
 def estimate_recreation_cost(pid:str,request:GenerationCostRequest):
     blueprint=get_recreation_blueprint(pid)
     try:
-        return estimate_generation_cost(blueprint,request.price_per_second_usd).__dict__
+        selected=select_shots_for_estimate(blueprint,request.shot_ids) if request.shot_ids is not None else blueprint
+        return estimate_generation_cost(selected,request.price_per_second_usd).__dict__
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
 
@@ -411,7 +413,8 @@ def estimate_recreation_cost(pid:str,request:GenerationCostRequest):
 def check_recreation_budget(pid:str,request:GenerationApprovalRequest):
     blueprint=get_recreation_blueprint(pid)
     try:
-        estimate=estimate_generation_cost(blueprint,request.price_per_second_usd)
+        selected=select_shots_for_estimate(blueprint,request.shot_ids) if request.shot_ids is not None else blueprint
+        estimate=estimate_generation_cost(selected,request.price_per_second_usd)
         validate_paid_generation_approval(approved=request.approved,
             estimated_usd=estimate.estimated_usd,max_budget_usd=request.max_budget_usd)
         return {'approved':True,'estimate':estimate.__dict__,
