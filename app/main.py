@@ -28,6 +28,7 @@ from .generation_preflight import prepare_generation_batch
 from .generation_payload import prepare_shot
 from .generation_dispatch import reserve_dispatch, get_dispatch
 from .approved_generation_queue import queue_approved_shot
+from .approved_queue_store import reserve_approved_job
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -420,6 +421,27 @@ class ApprovedQueueRequest(BaseModel):
     price_per_second_usd: float = Field(ge=0,le=1000)
     approved: bool
     max_budget_usd: float = Field(ge=0,le=1000000)
+
+@app.post('/api/projects/{pid}/recreation/approved-sqlite-journal')
+def journal_approved_recreation_shot(pid:str,request:ApprovedQueueRequest):
+    """Atomic reservation only; not part of the runnable legacy jobs queue."""
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        batch=prepare_generation_batch(
+            blueprint,pid,[request.shot_id],
+            price_per_second_usd=request.price_per_second_usd,
+            approved=request.approved,max_budget_usd=request.max_budget_usd)
+        if batch.approved is not True:
+            raise PermissionError('Explicit approval required')
+        result=reserve_approved_job(folder,request.idempotency_key,
+                                    request.shot_id,batch.fingerprints[0])
+        return {**result,'runnable':False,
+                'warning':'SQLite journal only: no worker, provider call, or billing'}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/approved-queue')
 def enqueue_approved_recreation_shot(pid:str,request:ApprovedQueueRequest):
