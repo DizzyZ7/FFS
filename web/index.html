@@ -5,7 +5,7 @@
 <body><header><strong>FFS / FrameForge Studio</strong> <small>v0.1 · Local-first reference editor</small></header>
 <main><h1>Reference Studio</h1><p>Загрузи ролик, найди склейки, отредактируй последовательность сцен и экспортируй видео.</p>
 <section class="panel"><h2>1. Исходное видео</h2><input id="file" type="file" accept="video/*"><button id="upload">Анализировать</button><p id="status" role="status"></p></section>
-<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><p><button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
+<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><p><button id="save">Сохранить монтаж</button> <button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
 </main><script>
 let project=null;
 const el=id=>document.getElementById(id);
@@ -16,13 +16,19 @@ el('upload').onclick=async()=>{
  el('upload').disabled=true;status('Загружаем и анализируем видео...');
  try{const r=await fetch('/api/projects',{method:'POST',body});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));
  project=data;el('editor').hidden=false;el('preview').src='/api/projects/'+data.id+'/source';el('metadata').textContent='Длительность: '+data.metadata.duration.toFixed(1)+' с · '+data.metadata.width+'×'+data.metadata.height;
- const box=el('clips');box.replaceChildren();data.scenes.forEach((clip,i)=>{const div=document.createElement('div');div.className='clip';div.innerHTML='<strong>Сцена '+(i+1)+'</strong><div>От <input type="number" step="0.01" class="start"> До <input type="number" step="0.01" class="end"></div><label><input type="checkbox" class="include" checked> Включить</label>';div.querySelector('.start').value=clip.start;div.querySelector('.end').value=clip.end;box.append(div)});
+ const box=el('clips');box.replaceChildren();(data.timeline||data.scenes).forEach((clip,i)=>{const div=document.createElement('div');div.className='clip';div.innerHTML='<strong>Сцена '+(i+1)+'</strong><div>От <input type="number" step="0.01" class="start"> До <input type="number" step="0.01" class="end"></div><label><input type="checkbox" class="include" checked> Включить</label>';div.querySelector('.start').value=clip.start;div.querySelector('.end').value=clip.end;box.append(div)});
  status('Найдено сцен: '+data.scenes.length)
  }catch(e){status('Ошибка: '+e.message)}finally{el('upload').disabled=false}
 };
+function collectClips(){return [...document.querySelectorAll('.clip')].filter(x=>x.querySelector('.include').checked).map(x=>({start:Number(x.querySelector('.start').value),end:Number(x.querySelector('.end').value)}))}
+el('save').onclick=async()=>{
+ if(!project)return;
+ el('save').disabled=true;
+ try{const r=await fetch('/api/projects/'+project.id+'/timeline',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({clips:collectClips()})});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));status('Монтаж сохранен · ревизия '+data.revision)}catch(e){status('Ошибка сохранения: '+e.message)}finally{el('save').disabled=false}
+};
 el('export').onclick=async()=>{
  if(!project)return;
- const clips=[...document.querySelectorAll('.clip')].filter(x=>x.querySelector('.include').checked).map(x=>({start:Number(x.querySelector('.start').value),end:Number(x.querySelector('.end').value)}));
+ const clips=collectClips();
  el('export').disabled=true;status('Рендеринг, подожди...');
  try{const r=await fetch('/api/projects/'+project.id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clips})});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));el('download').href=data.download;el('download').hidden=false;el('download').textContent='Скачать MP4';status('Рендер готов')}catch(e){status('Ошибка: '+e.message)}finally{el('export').disabled=false}
 };
