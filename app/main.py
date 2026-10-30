@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render
 from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
+from .transcription import transcribe_words
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
 ROOT.mkdir(parents=True,exist_ok=True)
@@ -240,6 +241,18 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+@app.post('/api/projects/{pid}/transcription')
+def transcribe_project(pid:str,model:str='tiny',language:str|None=None):
+    folder=project_dir(pid)
+    try:
+        return transcribe_words(folder/'source.mp4',model=model,language=language)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Source video not found') from exc
 
 @app.get('/api/projects/{pid}/analysis')
 def get_analysis(pid:str,threshold:float=0.30):
