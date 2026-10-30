@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render
 from .reference import reference_plan, extract_contact_sheet_frames
+from . import jobs
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
 ROOT.mkdir(parents=True,exist_ok=True)
@@ -204,6 +205,41 @@ def subject_image(pid:str,subject_id:str):
     if extension is None:
         raise HTTPException(500,'Invalid subject metadata')
     return FileResponse(folder/'subjects'/(subject_id+'.'+extension),media_type=item['mime_type'])
+
+@app.post('/api/projects/{pid}/generation/jobs')
+def enqueue_generation(pid:str,shot_id:str):
+    folder=project_dir(pid)
+    plan_path=folder/'shot-plan.json'
+    plan=json.loads(plan_path.read_text(encoding='utf8')) if plan_path.is_file() else reference_plan(folder/'source.mp4')
+    shot=next((item for item in plan['shots'] if item['id']==shot_id),None)
+    if shot is None:
+        raise HTTPException(404,'Shot not found')
+    if not str(shot.get('prompt','')).strip():
+        raise HTTPException(422,'Set a shot prompt before queuing generation')
+    # Deliberately no provider call. This records intent only.
+    return jobs.enqueue(folder,shot_id)
+
+@app.get('/api/projects/{pid}/generation/jobs')
+def list_generation_jobs(pid:str):
+    return {'jobs':jobs.list_jobs(project_dir(pid))}
+
+@app.get('/api/projects/{pid}/generation/jobs/{job_id}')
+def get_generation_job(pid:str,job_id:str):
+    try:
+        return jobs.get_job(project_dir(pid),job_id)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Job not found') from exc
+
+@app.post('/api/projects/{pid}/generation/jobs/{job_id}/cancel')
+def cancel_generation_job(pid:str,job_id:str):
+    try:
+        return jobs.cancel(project_dir(pid),job_id)
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404,'Job not found') from exc
 
 @app.get('/api/projects/{pid}/analysis')
 def get_analysis(pid:str,threshold:float=0.30):
