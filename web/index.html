@@ -102,9 +102,18 @@ async function refreshJobs(){
 }
 async function queueShot(shotId){
  if(!project)return;
- // Persist the current editor state before registering a job.
- el('save-shots').click();
- status('Сохрани промпты сцен, затем добавь задачу в очередь');
+ try{
+  const shots=[...document.querySelectorAll('#storyboard .shot')].map(x=>({
+   shot_id:x.dataset.shotId,prompt:x.querySelector('.prompt').value,
+   subject_ids:[...x.querySelector('.subject').selectedOptions].map(v=>v.value)
+  }));
+  const save=await fetch('/api/projects/'+project.id+'/shot-plan',{method:'PUT',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify({shots})});
+  if(!save.ok)throw Error('Не удалось сохранить промпты сцен');
+  const r=await fetch('/api/projects/'+project.id+'/generation/jobs?shot_id='+encodeURIComponent(shotId),{method:'POST'});
+  if(!r.ok){const detail=await r.json();throw Error(JSON.stringify(detail.detail))}
+  await refreshJobs();status('Задача добавлена в очередь. Исполнитель AI пока не подключен.');
+ }catch(e){status('Ошибка очереди: '+e.message)}
 }
 el('refresh-jobs').onclick=refreshJobs;
 function collectClips(){return [...document.querySelectorAll('.clip')].filter(x=>x.querySelector('.include').checked).map(x=>({start:Number(x.querySelector('.start').value),end:Number(x.querySelector('.end').value)}))}
