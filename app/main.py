@@ -18,6 +18,7 @@ from .recreation_accept import accept_completed_job
 from .generation import GenerationRequest
 from .worker import execute_job
 from .local_demo_provider import LocalReferenceDemoProvider
+from .provider_config import configured_provider
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -381,6 +382,13 @@ def run_recreation_local_demo(pid:str,job_id:str):
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
         raise HTTPException(503,'Local demo render unavailable') from exc
+
+@app.get('/api/generation/provider')
+def generation_provider_status():
+    config=configured_provider()
+    return {'provider_id':config.provider_id,'available':config.available,
+            'reason':config.reason,
+            'supports_ai_generation':False}
 
 @app.get('/api/projects/{pid}/visual-scores')
 def visual_scores(pid:str):
