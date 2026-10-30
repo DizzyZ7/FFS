@@ -3,6 +3,7 @@
 No external provider is enabled implicitly and no secrets are persisted.
 """
 import os
+from .external_provider import external_provider_settings
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
@@ -19,5 +20,5 @@ def configured_provider(env=None):
     if selected=='local-reference-demo':
         return ProviderConfig(selected,True,'Demo only: copies source footage, no AI generation')
     if selected=='external':
-        return ProviderConfig(selected,False,'External adapter is not installed; no API calls will be made')
+        return ProviderConfig(selected,False,external_provider_settings(env).reason)
     return ProviderConfig('disabled',False,'Unknown provider setting; generation disabled')
