@@ -5,7 +5,7 @@
 <body><header><strong>FFS / FrameForge Studio</strong> <small>v0.1 · Local-first reference editor</small></header>
 <main><h1>Reference Studio</h1><p>Загрузи ролик, найди склейки, отредактируй последовательность сцен и экспортируй видео.</p>
 <section class="panel"><h2>1. Исходное видео</h2><input id="file" type="file" accept="video/*"><button id="upload">Анализировать</button><p id="status" role="status"></p></section>
-<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><h3>Библиотека персонажей</h3><label>Имя <input id="subject-name" maxlength="80" placeholder="Имя персонажа"></label><label>Изображение <input id="subject-file" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="add-subject">Добавить персонажа</button><div id="subjects"></div><p><button id="storyboard-button">Создать раскадровку</button></p><div id="storyboard" aria-live="polite"></div><div class="shot-actions"><button id="save-shots" hidden>Сохранить промпты сцен</button></div><h3>Очередь AI-генерации</h3><p><small>Пока это подготовка задач: AI-провайдер не подключен, видео автоматически не генерируется.</small></p><button id="refresh-jobs">Обновить очередь</button><div id="jobs" class="job-list" aria-live="polite"></div><p><button id="save">Сохранить монтаж</button> <button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
+<section class="panel" id="editor" hidden><h2>2. Сцены</h2><video id="preview" controls></video><p id="metadata"></p><div id="clips"></div><h3>Библиотека персонажей</h3><label>Имя <input id="subject-name" maxlength="80" placeholder="Имя персонажа"></label><label>Изображение <input id="subject-file" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="add-subject">Добавить персонажа</button><div id="subjects"></div><p><button id="storyboard-button">Создать раскадровку</button></p><div id="storyboard" aria-live="polite"></div><div class="shot-actions"><button id="save-shots" hidden>Сохранить промпты сцен</button></div><h3>Автоматические субтитры</h3><p><small>Локальное распознавание речи и анимированные титры. Требуется отдельно установленный faster-whisper. Первый запуск может скачать модель.</small></p><label>Модель <select id="asr-model"><option value="tiny">Tiny — быстрее</option><option value="base">Base — точнее</option><option value="small">Small — качественнее, медленнее</option></select></label> <label>Оформление <select id="caption-style"><option value="pop">Pop</option><option value="minimal">Minimal</option><option value="bold">Bold</option></select></label> <button id="auto-captions">Автосубтитры → MP4</button><p id="caption-progress" role="status"></p><a id="caption-download" hidden>Скачать видео с субтитрами</a><h3>Очередь AI-генерации</h3><p><small>Пока это подготовка задач: AI-провайдер не подключен, видео автоматически не генерируется.</small></p><button id="refresh-jobs">Обновить очередь</button><div id="jobs" class="job-list" aria-live="polite"></div><p><button id="save">Сохранить монтаж</button> <button id="export">Экспортировать MP4</button></p><a id="download" hidden>Скачать результат</a></section>
 </main><script>
 let project=null;let subjectLibrary=[];
 const el=id=>document.getElementById(id);
@@ -127,5 +127,22 @@ el('export').onclick=async()=>{
  const clips=collectClips();
  el('export').disabled=true;status('Рендеринг, подожди...');
  try{const r=await fetch('/api/projects/'+project.id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clips})});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));el('download').href=data.download;el('download').hidden=false;el('download').textContent='Скачать MP4';status('Рендер готов')}catch(e){status('Ошибка: '+e.message)}finally{el('export').disabled=false}
+};
+el('auto-captions').onclick=async()=>{
+ if(!project)return;
+ const button=el('auto-captions');button.disabled=true;
+ el('caption-progress').textContent='Распознавание речи и рендеринг видео...';
+ el('caption-download').hidden=true;
+ try{
+  const response=await fetch('/api/projects/'+project.id+'/auto-captions',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({model:el('asr-model').value,style:el('caption-style').value,max_words:4})
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));
+  const link=el('caption-download');link.href=data.download;link.hidden=false;
+  el('caption-progress').textContent='Готово! Распознано слов: '+data.word_count+'. Язык: '+data.language;
+ }catch(error){el('caption-progress').textContent='Не удалось создать субтитры: '+error.message}
+ finally{button.disabled=false}
 };
 </script></body></html>
