@@ -5,6 +5,7 @@ CPU-only FFmpeg normalization. Audio is intentionally not included in v1.
 import math
 import subprocess
 from pathlib import Path
+from .recreation_reference_output import reference_output_settings, mux_reference_audio
 
 def collect_recreation_clips(folder:Path,blueprint:dict):
     shots=blueprint.get('shots',[])
@@ -30,13 +31,14 @@ def render_recreation(folder:Path,blueprint:dict,output:Path):
     output=output.resolve()
     if not output.is_relative_to(folder.resolve()):
         raise ValueError('Output must be inside project')
+    width,height,fps=reference_output_settings(blueprint)
     filters=[];inputs=[]
     for index,(path,duration) in enumerate(clips):
         inputs.extend(['-i',str(path)])
         filters.append(
             f'[{index}:v:0]setpts=PTS-STARTPTS,'
-            f'fps=30,scale=1280:720:force_original_aspect_ratio=decrease,'
-            f'pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,'
+            f'fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease,'
+            f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,'
             f'tpad=stop_mode=clone:stop_duration={duration},trim=duration={duration},setpts=PTS-STARTPTS[v{index}]')
     filters.append(''.join(f'[v{i}]' for i in range(len(clips)))+
                    f'concat=n={len(clips)}:v=1:a=0[outv]')
