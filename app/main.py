@@ -16,6 +16,7 @@ from .speech_cuts import plan_speech_cuts
 from .auto_edit import create_auto_edit_plan, create_ranked_auto_edit_plan
 from .edit_instructions import parse_edit_request
 from .highlights import rank_highlights
+from .visual_analysis import visual_scene_scores
 from .captions import Word, save_ass, render_captioned_video
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
@@ -246,6 +247,20 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+@app.get('/api/projects/{pid}/visual-scores')
+def visual_scores(pid:str):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        scores=visual_scene_scores(folder/'source.mp4',project['scenes'],
+                                   duration=float(project['metadata']['duration']))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Visual analysis unavailable') from exc
+    return {'scenes':scores,'method':'ffmpeg_brightness',
+            'warning':'Exposure heuristic only; not semantic or aesthetic scoring'}
 
 class RankedAutoEditRequest(BaseModel):
     model: str = 'tiny'
