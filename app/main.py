@@ -23,10 +23,10 @@ from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
 from .reference_motion import analyze_motion_activity
 from .recreation_guidance import build_shot_guidance
-from .generation_budget import estimate_generation_cost, validate_paid_generation_approval
+from .generation_budget import estimate_generation_cost, validate_paid_generation_approval, select_shots_for_estimate
 from .generation_preflight import prepare_generation_batch
 from .generation_payload import prepare_shot
-from .generation_dispatch import reserve_dispatch, get_dispatch, select_shots_for_estimate
+from .generation_dispatch import reserve_dispatch, get_dispatch
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
