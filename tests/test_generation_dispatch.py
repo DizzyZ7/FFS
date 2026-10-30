@@ -18,3 +18,15 @@ def test_reuse_for_other_revision_rejected(tmp_path):
 def test_bad_key_rejected(tmp_path):
     with pytest.raises(ValueError):
         reserve_dispatch(tmp_path,'../escape','shot-0001',FP)
+
+@pytest.mark.parametrize('bad_content',['{','[]','{}','{"state":"reserved"}'])
+def test_corrupt_reservation_fails_closed(tmp_path,bad_content):
+    folder=tmp_path/'generation-dispatch'
+    folder.mkdir()
+    path=folder/'key-12345678.json'
+    path.write_text(bad_content)
+    with pytest.raises(ValueError,match='manual reconciliation'):
+        reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
+    with pytest.raises(ValueError,match='manual reconciliation'):
+        get_dispatch(tmp_path,'key-12345678')
+    assert path.read_text()==bad_content
