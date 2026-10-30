@@ -52,3 +52,16 @@ def validate_paid_generation_approval(*,approved,estimated_usd,max_budget_usd):
     if estimate>budget:
         raise PermissionError('Estimated generation cost exceeds approved budget')
     return True
+
+def select_shots_for_estimate(blueprint,shot_ids):
+    """Return a minimal blueprint of selected unique shots, preserving timeline order."""
+    if not isinstance(shot_ids,list) or not 1<=len(shot_ids)<=100:
+        raise ValueError('Select 1-100 shot IDs')
+    if any(not isinstance(value,str) for value in shot_ids) or len(set(shot_ids))!=len(shot_ids):
+        raise ValueError('Shot IDs must be unique strings')
+    shots=blueprint.get('shots',[])
+    known={shot['id'] for shot in shots}
+    if any(value not in known for value in shot_ids):
+        raise ValueError('Unknown shot ID')
+    selected=set(shot_ids)
+    return {'shots':[shot for shot in shots if shot['id'] in selected]}
