@@ -28,14 +28,14 @@ def _write(path:Path,payload:dict):
     finally:
         temp.unlink(missing_ok=True)
 
-def enqueue(folder:Path,shot_id:str):
+def enqueue(folder:Path,shot_id:str,*,fingerprint:str|None=None):
     with _lock:
         jobs=folder/'generation-jobs'
         jobs.mkdir(exist_ok=True)
         job_id=uuid.uuid4().hex
         job={'id':job_id,'shot_id':shot_id,'status':'queued',
              'created_at':_now(),'updated_at':_now(),'progress':0,
-             'output_path':None,'error':None}
+             'output_path':None,'error':None,'fingerprint':fingerprint}
         _write(jobs/(job_id+'.json'),job)
         return job
 

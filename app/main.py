@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
 from .recreation import build_recreation_blueprint, revise_blueprint_shot
+from .recreation_jobs import shot_fingerprint, pending_recreation_shots
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -294,6 +295,27 @@ def revise_recreation_shot(pid:str,shot_id:str,request:RecreationShotRevision):
     temp.write_text(json.dumps(revised,ensure_ascii=False,indent=2),encoding='utf8')
     temp.replace(path)
     return revised
+
+@app.get('/api/projects/{pid}/recreation/pending')
+def get_pending_recreation_shots(pid:str):
+    blueprint=get_recreation_blueprint(pid)
+    return {'shots':pending_recreation_shots(blueprint)}
+
+@app.post('/api/projects/{pid}/recreation/shots/{shot_id}/queue')
+def queue_recreation_shot(pid:str,shot_id:str):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    shot=next((s for s in blueprint['shots'] if s['id']==shot_id),None)
+    if shot is None:
+        raise HTTPException(404,'Shot not found')
+    if not shot.get('instructions','').strip():
+        raise HTTPException(422,'Set instructions before queuing the shot')
+    fingerprint=shot_fingerprint(shot)
+    for existing in jobs.list_jobs(folder):
+        if (existing['shot_id']==shot_id and existing.get('fingerprint')==fingerprint
+                and existing['status'] in ('queued','running')):
+            return existing
+    return jobs.enqueue(folder,shot_id,fingerprint=fingerprint)
 
 @app.get('/api/projects/{pid}/visual-scores')
 def visual_scores(pid:str):
