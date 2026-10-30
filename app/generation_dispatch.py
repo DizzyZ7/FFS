@@ -6,6 +6,7 @@ have reached the vendor. Operator reconciliation is required.
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 _KEY=re.compile(r'^[a-zA-Z0-9_-]{8,128}$')
@@ -32,6 +33,34 @@ def _read_reservation(path:Path):
     if payload['idempotency_key']!=path.stem:
         raise ValueError('Dispatch reservation key mismatch; manual reconciliation required')
     return payload
+
+def bind_dispatch_job(folder:Path,key:str,job_id:str):
+    """Bind an existing reservation to one immutable queue job ID."""
+    if not isinstance(job_id,str) or not re.fullmatch(r'[0-9a-f]{32}',job_id):
+        raise ValueError('Invalid job ID')
+    reservation=get_dispatch(folder,key)
+    path=folder/'generation-dispatch'/(key+'.job')
+    try:
+        with path.open('x',encoding='utf8') as output:
+            output.write(job_id)
+            output.flush()
+            os.fsync(output.fileno())
+        return job_id
+    except FileExistsError:
+        existing=path.read_text(encoding='utf8')
+        if existing!=job_id:
+            raise ValueError('Dispatch reservation is bound to another job')
+        return existing
+
+def get_dispatch_job(folder:Path,key:str):
+    get_dispatch(folder,key)
+    path=folder/'generation-dispatch'/(key+'.job')
+    if not path.exists():
+        return None
+    job_id=path.read_text(encoding='utf8')
+    if not re.fullmatch(r'[0-9a-f]{32}',job_id):
+        raise ValueError('Dispatch job binding is invalid; manual reconciliation required')
+    return job_id
 
 def reserve_dispatch(folder:Path,key:str,shot_id:str,fingerprint:str):
     if not isinstance(key,str) or not _KEY.fullmatch(key):
