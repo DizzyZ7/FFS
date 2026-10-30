@@ -36,7 +36,17 @@ def reserve_approved_job(folder:Path,key:str,shot_id:str,fingerprint:str):
             if row is not None:
                 if row[0]!=shot_id or row[1]!=fingerprint:
                     raise ValueError('Idempotency key reused for a different shot or revision')
-                result={'created':False,'job':json.loads(row[3])}
+                try:
+                    job=json.loads(row[3])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError('Corrupt approved job journal; manual reconciliation required') from exc
+                if (not isinstance(job,dict)
+                        or job.get('id')!=row[2]
+                        or job.get('shot_id')!=shot_id
+                        or job.get('fingerprint')!=fingerprint
+                        or job.get('status') not in ('queued','running','succeeded','failed','cancelled')):
+                    raise ValueError('Approved job identity mismatch; manual reconciliation required')
+                result={'created':False,'job':job}
             else:
                 # Legacy JSON ledger is still active in the API. Never mint a
                 # second job for a key already reserved by that ledger.
