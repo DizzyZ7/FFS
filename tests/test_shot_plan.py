@@ -16,6 +16,7 @@ def test_shot_plan_persistence():
             'schema_version':1,
             'shots':[{'id':'shot-0001','prompt':'','subject_ids':[]}]
         }))
+        (folder/'subjects.json').write_text(json.dumps({'subjects':[{'id':'hero'}]}))
         with patch.object(main,'ROOT',Path(d)):
             response=client.put('/api/projects/'+pid+'/shot-plan',json={
                 'shots':[{'shot_id':'shot-0001','prompt':'warm cinematic light','subject_ids':['hero']}]
