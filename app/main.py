@@ -115,7 +115,6 @@ async def add_subject(pid:str,file:UploadFile=File(...),name:str=Form(...)):
     else:
         raise HTTPException(415,'Only PNG, JPEG and WebP are supported')
     import subprocess
-    import math
     subject_id=uuid.uuid4().hex
     assets=folder/'subjects'
     assets.mkdir(exist_ok=True)
@@ -133,7 +132,7 @@ async def add_subject(pid:str,file:UploadFile=File(...),name:str=Form(...)):
         width=int(streams[0]['width']);height=int(streams[0]['height'])
         if not 1<=width<=8192 or not 1<=height<=8192 or width*height>24000000:
             raise ValueError('Image dimensions out of range')
-    except (ValueError,KeyError,TypeError,subprocess.TimeoutExpired):
+    except (ValueError,KeyError,TypeError,subprocess.TimeoutExpired,subprocess.SubprocessError,OSError,json.JSONDecodeError):
         target.unlink(missing_ok=True)
         raise HTTPException(422,'Image cannot be decoded or is too large')
     path=folder/'subjects.json'
