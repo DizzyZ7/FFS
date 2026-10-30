@@ -13,6 +13,7 @@ from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
+from .auto_edit import create_auto_edit_plan
 from .captions import Word, save_ass, render_captioned_video
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
@@ -243,6 +244,22 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class AutoEditPlanRequest(BaseModel):
+    target_seconds: float = Field(default=30,ge=3,le=180)
+    format: str = 'reels'
+    pace: str = 'dynamic'
+
+@app.post('/api/projects/{pid}/auto-edit/plan')
+def auto_edit_plan(pid:str,request:AutoEditPlanRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        return create_auto_edit_plan(project['scenes'],float(project['metadata']['duration']),
+                                     target_seconds=request.target_seconds,
+                                     format=request.format,pace=request.pace)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
 
 class SpeechCutRequest(BaseModel):
     model: str = 'tiny'
