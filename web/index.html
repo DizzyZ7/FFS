@@ -116,6 +116,21 @@ async function queueShot(shotId){
  }catch(e){status('Ошибка очереди: '+e.message)}
 }
 el('refresh-jobs').onclick=refreshJobs;
+function renderClips(clips){
+ const box=el('clips');box.replaceChildren();
+ clips.forEach((clip,i)=>{
+  const div=document.createElement('div');div.className='clip';
+  const title=document.createElement('strong');title.textContent='Сцена '+(i+1);
+  const range=document.createElement('div');range.textContent='От ';
+  const start=document.createElement('input');start.type='number';start.step='0.01';start.className='start';start.value=clip.start;
+  const end=document.createElement('input');end.type='number';end.step='0.01';end.className='end';end.value=clip.end;
+  range.append(start,document.createTextNode(' До '),end);
+  const label=document.createElement('label');
+  const include=document.createElement('input');include.type='checkbox';include.className='include';include.checked=true;
+  label.append(include,document.createTextNode(' Включить'));
+  div.append(title,range,label);box.append(div);
+ });
+}
 function collectClips(){return [...document.querySelectorAll('.clip')].filter(x=>x.querySelector('.include').checked).map(x=>({start:Number(x.querySelector('.start').value),end:Number(x.querySelector('.end').value)}))}
 el('save').onclick=async()=>{
  if(!project)return;
