@@ -357,7 +357,20 @@ async function refreshRecreation(){
     await refreshRecreation()}
    catch(error){el('recreation-status').textContent=error.message}
   };
-  actions.append(save,queue);row.append(info,actions);box.append(row);
+  const demo=document.createElement('button');demo.textContent='Локальный демо-рендер';
+  demo.title='Берет фрагмент исходного референса, не использует AI';
+  demo.onclick=async()=>{
+   demo.disabled=true;
+   try{
+    const queued=await recreationApi('/recreation/shots/'+encodeURIComponent(shot.id)+'/queue','POST');
+    const result=await recreationApi('/recreation/jobs/'+queued.id+'/run-local-demo','POST');
+    el('recreation-status').textContent='Демо-фрагмент готов: '+result.accepted.shot_id+
+      '. Использован исходный ролик, не AI.';
+    await refreshRecreation();
+   }catch(error){el('recreation-status').textContent='Ошибка демо: '+error.message}
+   finally{demo.disabled=false}
+  };
+  actions.append(save,queue,demo);row.append(info,actions);box.append(row);
  }
 }
 el('recreation-create').onclick=async()=>{

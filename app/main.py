@@ -15,6 +15,9 @@ from .recreation import build_recreation_blueprint, revise_blueprint_shot
 from .recreation_render import render_recreation
 from .recreation_jobs import shot_fingerprint, pending_recreation_shots
 from .recreation_accept import accept_completed_job
+from .generation import GenerationRequest
+from .worker import execute_job
+from .local_demo_provider import LocalReferenceDemoProvider
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -349,6 +352,35 @@ def download_recreated_video(pid:str):
     if not output.is_file():
         raise HTTPException(404,'Recreated video not rendered')
     return FileResponse(output,media_type='video/mp4',filename='recreation.mp4')
+
+@app.post('/api/projects/{pid}/recreation/jobs/{job_id}/run-local-demo')
+def run_recreation_local_demo(pid:str,job_id:str):
+    """Explicit demo: copy source reference footage, not AI-generated footage."""
+    folder=project_dir(pid)
+    try:
+        job=jobs.get_job(folder,job_id)
+        blueprint=get_recreation_blueprint(pid)
+        shot=next((s for s in blueprint['shots'] if s['id']==job['shot_id']),None)
+        if shot is None or job.get('fingerprint')!=shot_fingerprint(shot):
+            raise HTTPException(409,'Job is stale or shot is missing')
+        request=GenerationRequest(project_id=pid,shot_id=shot['id'],
+            prompt=shot['instructions'],duration_seconds=float(shot['duration']),
+            subject_ids=tuple(shot['subject_ids']),
+            settings={'source_start':shot['source_start'],
+                      'source_end':shot['source_end'],'job_id':job_id})
+        result=execute_job(folder,job_id,request,LocalReferenceDemoProvider(folder))
+        if result['status']!='succeeded':
+            raise HTTPException(503,'Local reference clip render failed')
+        accepted=accept_completed_job(folder,job_id)
+        return {'job':result,'accepted':accepted,
+                'mode':'local_reference_demo',
+                'warning':'Uses original reference footage. No AI generation.'}
+    except (FileNotFoundError,KeyError) as exc:
+        raise HTTPException(404,'Job or reference footage missing') from exc
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
+        raise HTTPException(503,'Local demo render unavailable') from exc
 
 @app.get('/api/projects/{pid}/visual-scores')
 def visual_scores(pid:str):
