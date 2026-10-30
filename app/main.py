@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .media import probe, detect_scenes, render, render_social
 from .reference import reference_plan, extract_contact_sheet_frames
 from .recreation import build_recreation_blueprint, revise_blueprint_shot
+from .recreation_render import render_recreation
 from .recreation_jobs import shot_fingerprint, pending_recreation_shots
 from . import jobs
 from .transcription import transcribe_words
@@ -316,6 +317,26 @@ def queue_recreation_shot(pid:str,shot_id:str):
                 and existing['status'] in ('queued','running')):
             return existing
     return jobs.enqueue(folder,shot_id,fingerprint=fingerprint)
+
+@app.post('/api/projects/{pid}/recreation/render')
+def render_recreated_video(pid:str):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    try:
+        render_recreation(folder,blueprint,folder/'recreation-final.mp4')
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except (subprocess.SubprocessError,OSError) as exc:
+        raise HTTPException(503,'Could not assemble recreation video') from exc
+    return {'download_url':f'/api/projects/{pid}/recreation/download',
+            'warning':'Video-only 720p render; no audio or transitions yet'}
+
+@app.get('/api/projects/{pid}/recreation/download')
+def download_recreated_video(pid:str):
+    output=project_dir(pid)/'recreation-final.mp4'
+    if not output.is_file():
+        raise HTTPException(404,'Recreated video not rendered')
+    return FileResponse(output,media_type='video/mp4',filename='recreation.mp4')
 
 @app.get('/api/projects/{pid}/visual-scores')
 def visual_scores(pid:str):
