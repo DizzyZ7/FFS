@@ -21,6 +21,7 @@ from .worker import execute_job
 from .local_demo_provider import LocalReferenceDemoProvider
 from .provider_config import configured_provider
 from .reference_audio import audio_onsets, cut_alignment
+from .reference_motion import analyze_motion_activity
 from . import jobs
 from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
@@ -388,6 +389,19 @@ def run_recreation_local_demo(pid:str,job_id:str):
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError,RuntimeError) as exc:
         raise HTTPException(503,'Local demo render unavailable') from exc
+
+@app.get('/api/projects/{pid}/reference/motion-analysis')
+def analyze_reference_motion(pid:str):
+    folder=project_dir(pid)
+    blueprint=get_recreation_blueprint(pid)
+    scenes=[{'start':shot['source_start'],'end':shot['source_end']}
+            for shot in blueprint['shots']]
+    try:
+        return {'scenes':analyze_motion_activity(folder/'source.mp4',scenes,
+                         duration=float(blueprint['reference']['duration'])),
+                'warning':'Visual activity is not camera-motion direction'}
+    except (subprocess.SubprocessError,OSError,ValueError,RuntimeError) as exc:
+        raise HTTPException(503,'Reference visual activity analysis unavailable') from exc
 
 @app.get('/api/projects/{pid}/reference/audio-analysis')
 def analyze_reference_audio(pid:str):
