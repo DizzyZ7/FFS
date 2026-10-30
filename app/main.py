@@ -12,6 +12,7 @@ from .media import probe, detect_scenes, render
 from .reference import reference_plan, extract_contact_sheet_frames
 from . import jobs
 from .transcription import transcribe_words
+from .captions import Word, save_ass, render_captioned_video
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
 ROOT.mkdir(parents=True,exist_ok=True)
@@ -241,6 +242,37 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class AutoCaptionRequest(BaseModel):
+    model: str = Field(default='tiny')
+    language: str|None = None
+    style: str = Field(default='pop')
+    max_words: int = Field(default=4,ge=1,le=12)
+
+@app.post('/api/projects/{pid}/auto-captions')
+def auto_captions(pid:str,request:AutoCaptionRequest):
+    folder=project_dir(pid)
+    if request.style not in ('pop','minimal','bold'):
+        raise HTTPException(422,'Unknown caption style')
+    try:
+        result=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        words=[Word(**w) for w in result['words']]
+        if not words:
+            raise HTTPException(422,'No spoken words detected')
+        save_ass(folder/'captions.ass',words,request.style,request.max_words)
+        render_captioned_video(folder/'source.mp4',folder/'captioned.mp4',folder/'captions.ass')
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Caption processing unavailable or failed') from exc
+    return {'download':f'/api/projects/{pid}/auto-captions/download','word_count':len(words),'language':result['language']}
+
+@app.get('/api/projects/{pid}/auto-captions/download')
+def download_auto_captions(pid:str):
+    path=project_dir(pid)/'captioned.mp4'
+    if not path.is_file():
+        raise HTTPException(404,'Captioned render not found')
+    return FileResponse(path,filename='frameforge-auto-captions.mp4',media_type='video/mp4')
 
 @app.post('/api/projects/{pid}/transcription')
 def transcribe_project(pid:str,model:str='tiny',language:str|None=None):
