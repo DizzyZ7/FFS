@@ -336,18 +336,18 @@ def accept_recreation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
 
 @app.post('/api/projects/{pid}/recreation/render')
-def render_recreated_video(pid:str):
+def render_recreated_video(pid:str,preserve_audio:bool=False):
     folder=project_dir(pid)
     blueprint=get_recreation_blueprint(pid)
     try:
-        render_recreation(folder,blueprint,folder/'recreation-final.mp4')
+        render_recreation(folder,blueprint,folder/'recreation-final.mp4',preserve_audio=preserve_audio)
         (folder/'recreation-final.fingerprint').write_text(export_fingerprint(blueprint),encoding='ascii')
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     except (subprocess.SubprocessError,OSError) as exc:
         raise HTTPException(503,'Could not assemble recreation video') from exc
     return {'download_url':f'/api/projects/{pid}/recreation/download',
-            'warning':'Video-only 720p render; no audio or transitions yet'}
+            'warning':'Reference dimensions and FPS preserved; soundtrack optional; transitions not reproduced'}
 
 @app.get('/api/projects/{pid}/recreation/download')
 def download_recreated_video(pid:str):
