@@ -34,10 +34,10 @@ def render_recreation(folder:Path,blueprint:dict,output:Path):
     for index,(path,duration) in enumerate(clips):
         inputs.extend(['-i',str(path)])
         filters.append(
-            f'[{index}:v:0]trim=duration={duration},setpts=PTS-STARTPTS,'
+            f'[{index}:v:0]setpts=PTS-STARTPTS,'
             f'fps=30,scale=1280:720:force_original_aspect_ratio=decrease,'
             f'pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,'
-            f'tpad=stop_mode=clone:stop_duration={duration}[v{index}]')
+            f'tpad=stop_mode=clone:stop_duration={duration},trim=duration={duration},setpts=PTS-STARTPTS[v{index}]')
     filters.append(''.join(f'[v{i}]' for i in range(len(clips)))+
                    f'concat=n={len(clips)}:v=1:a=0[outv]')
     args=['ffmpeg','-hide_banner','-nostdin','-loglevel','error','-y',*inputs,
