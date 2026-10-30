@@ -72,7 +72,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for group in group_words(words,max_words=max_words):
         text=' '.join(_ass_escape(w.text) for w in group)
         # ASS transform creates an animated entrance with easing-like scale.
-        animated=r'{\\fscx85\\fscy85\\t(0,170,\\fscx100\\fscy100)}'+text
+        animated=r'{\fscx85\fscy85\t(0,170,\fscx100\fscy100)}'+text
         events.append(f'Dialogue: 0,{_time(group[0].start)},{_time(group[-1].end)},Caption,,0,0,0,,{animated}')
     return header+'\n'.join(events)+'\n'
 
