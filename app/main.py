@@ -249,7 +249,7 @@ class CaptionWord(BaseModel):
 
 class CaptionRenderRequest(BaseModel):
     words: list[CaptionWord] = Field(min_length=1,max_length=3000)
-    style: str = Field(default='pop',pattern='^(pop|minimal|bold)
+    style: str = Field(default='pop',min_length=3,max_length=7)
 def get_analysis(pid:str,threshold:float=0.30):
     folder=project_dir(pid)
     try:
