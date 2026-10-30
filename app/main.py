@@ -4,7 +4,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -117,6 +117,11 @@ def save_shot_plan(pid:str,request:ShotPlanRequest):
             raise HTTPException(422,'Unknown shot ID')
         if len(set(item.subject_ids))!=len(item.subject_ids) or any(not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}',x) for x in item.subject_ids):
             raise HTTPException(422,'Invalid subject IDs')
+    subject_manifest=folder/'subjects.json'
+    known_subjects={x['id'] for x in json.loads(subject_manifest.read_text(encoding='utf8')).get('subjects',[])} if subject_manifest.is_file() else set()
+    for item in request.shots:
+        if any(subject_id not in known_subjects for subject_id in item.subject_ids):
+            raise HTTPException(422,'Unknown subject ID')
     for item in request.shots:
         by_id[item.shot_id]['prompt']=item.prompt
         by_id[item.shot_id]['subject_ids']=item.subject_ids
@@ -125,6 +130,80 @@ def save_shot_plan(pid:str,request:ShotPlanRequest):
     temp.write_text(json.dumps(plan),encoding='utf8')
     temp.replace(path)
     return plan
+
+@app.get('/api/projects/{pid}/subjects')
+def list_subjects(pid:str):
+    folder=project_dir(pid)
+    path=folder/'subjects.json'
+    if not path.is_file():
+        return {'subjects':[]}
+    return json.loads(path.read_text(encoding='utf8'))
+
+@app.post('/api/projects/{pid}/subjects')
+async def add_subject(pid:str,file:UploadFile=File(...),name:str=Form(...)):
+    folder=project_dir(pid)
+    name=name.strip()
+    if not 1<=len(name)<=80:
+        raise HTTPException(422,'Subject name must contain 1–80 characters')
+    data=await file.read(5*1024*1024+1)
+    if len(data)>5*1024*1024:
+        raise HTTPException(413,'Subject image exceeds 5 MB')
+    # Verify file signatures rather than trusting browser-supplied MIME types.
+    if data.startswith(bytes.fromhex('89504e470d0a1a0a')):
+        extension='png';mime='image/png'
+    elif data.startswith(bytes.fromhex('ffd8ff')):
+        extension='jpg';mime='image/jpeg'
+    elif data.startswith(b'RIFF') and data[8:12]==b'WEBP':
+        extension='webp';mime='image/webp'
+    else:
+        raise HTTPException(415,'Only PNG, JPEG and WebP are supported')
+    import subprocess
+    subject_id=uuid.uuid4().hex
+    assets=folder/'subjects'
+    assets.mkdir(exist_ok=True)
+    target=assets/(subject_id+'.'+extension)
+    target.write_bytes(data)
+    try:
+        result=subprocess.run(['ffprobe','-v','error','-select_streams','v:0',
+            '-show_entries','stream=width,height','-of','json',str(target)],
+            capture_output=True,text=True,timeout=15)
+        if result.returncode:
+            raise ValueError('Invalid image')
+        streams=json.loads(result.stdout).get('streams',[])
+        if not streams:
+            raise ValueError('Invalid image')
+        width=int(streams[0]['width']);height=int(streams[0]['height'])
+        if not 1<=width<=8192 or not 1<=height<=8192 or width*height>24000000:
+            raise ValueError('Image dimensions out of range')
+    except (ValueError,KeyError,TypeError,subprocess.SubprocessError,OSError):
+        target.unlink(missing_ok=True)
+        raise HTTPException(422,'Image cannot be decoded or is too large')
+    path=folder/'subjects.json'
+    manifest=json.loads(path.read_text(encoding='utf8')) if path.is_file() else {'subjects':[]}
+    if len(manifest['subjects'])>=100:
+        target.unlink(missing_ok=True)
+        raise HTTPException(422,'Maximum 100 subjects per project')
+    item={'id':subject_id,'name':name,'image_url':f'/api/projects/{pid}/subjects/{subject_id}/image',
+          'mime_type':mime,'width':width,'height':height}
+    manifest['subjects'].append(item)
+    temp=folder/'subjects.json.tmp'
+    temp.write_text(json.dumps(manifest),encoding='utf8')
+    temp.replace(path)
+    return item
+
+@app.get('/api/projects/{pid}/subjects/{subject_id}/image')
+def subject_image(pid:str,subject_id:str):
+    if not re.fullmatch(r'[0-9a-f]{32}',subject_id):
+        raise HTTPException(400,'Invalid subject ID')
+    folder=project_dir(pid)
+    manifest=list_subjects(pid)
+    item=next((x for x in manifest['subjects'] if x['id']==subject_id),None)
+    if item is None:
+        raise HTTPException(404,'Subject not found')
+    extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}.get(item['mime_type'])
+    if extension is None:
+        raise HTTPException(500,'Invalid subject metadata')
+    return FileResponse(folder/'subjects'/(subject_id+'.'+extension),media_type=item['mime_type'])
 
 @app.get('/api/projects/{pid}/analysis')
 def get_analysis(pid:str,threshold:float=0.30):
