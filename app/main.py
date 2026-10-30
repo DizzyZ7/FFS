@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
