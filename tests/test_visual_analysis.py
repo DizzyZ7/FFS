@@ -23,4 +23,4 @@ def test_ffmpeg_command_and_result(tmp_path,monkeypatch):
     result=visual_scene_scores(tmp_path/'source.mp4',[{'start':0,'end':2}],duration=2)
     assert result[0]['brightness_score']==1
     assert result[0]['sample_count']==1
-    assert 'signalstats,metadata=print' in calls[0]
+    assert 'signalstats,metadata=print' in calls[0][calls[0].index('-vf')+1]
