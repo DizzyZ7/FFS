@@ -20,3 +20,14 @@ def test_atomic_store_survives_reopen(tmp_path):
     assert (tmp_path/'approved-queue.sqlite3').is_file()
     second=reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
     assert first['job']==second['job']
+
+def test_legacy_key_cannot_create_sqlite_job(tmp_path):
+    from app.generation_dispatch import reserve_dispatch
+    reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
+    with pytest.raises(ValueError,match='Legacy dispatch reservation'):
+        reserve_approved_job(tmp_path,'key-12345678','shot-0001',FP)
+    import sqlite3
+    with sqlite3.connect(tmp_path/'approved-queue.sqlite3') as conn:
+        table=conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='approved_jobs'").fetchone()
+        if table is not None:
+            assert conn.execute('SELECT COUNT(*) FROM approved_jobs').fetchone()[0]==0

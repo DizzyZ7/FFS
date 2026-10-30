@@ -38,6 +38,11 @@ def reserve_approved_job(folder:Path,key:str,shot_id:str,fingerprint:str):
                     raise ValueError('Idempotency key reused for a different shot or revision')
                 result={'created':False,'job':json.loads(row[3])}
             else:
+                # Legacy JSON ledger is still active in the API. Never mint a
+                # second job for a key already reserved by that ledger.
+                legacy=folder/'generation-dispatch'/(key+'.json')
+                if legacy.exists() or legacy.is_symlink():
+                    raise ValueError('Legacy dispatch reservation exists; manual reconciliation required')
                 from datetime import datetime,timezone
                 now=datetime.now(timezone.utc).isoformat()
                 job={'id':uuid.uuid4().hex,'shot_id':shot_id,'status':'queued',
