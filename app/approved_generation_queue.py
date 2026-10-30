@@ -1,7 +1,7 @@
 """Explicitly approved, idempotent local queueing; no paid execution."""
 from . import jobs
 from .generation_preflight import prepare_generation_batch
-from .generation_dispatch import reserve_dispatch
+from .generation_dispatch import reserve_dispatch, bind_dispatch_job, get_dispatch_job
 
 def queue_approved_shot(folder,blueprint,project_id,shot_id,idempotency_key,
                         *,price_per_second_usd,approved,max_budget_usd):
@@ -12,14 +12,21 @@ def queue_approved_shot(folder,blueprint,project_id,shot_id,idempotency_key,
         raise PermissionError('Explicit approval required for this queue')
     fingerprint=batch.fingerprints[0]
     reservation=reserve_dispatch(folder,idempotency_key,shot_id,fingerprint)
-    # Never create another job when the same reservation key is replayed.
-    existing=[job for job in jobs.list_jobs(folder)
-              if job['shot_id']==shot_id and job.get('fingerprint')==fingerprint]
+    bound_id=get_dispatch_job(folder,idempotency_key)
     if not reservation['created']:
-        if existing:
-            return {'reservation':reservation,'job':existing[0]}
-        return {'reservation':reservation,'job':None,
-                'warning':'Existing reservation requires manual reconciliation'}
-    if existing:
-        return {'reservation':reservation,'job':existing[0]}
-    return {'reservation':reservation,'job':jobs.enqueue(folder,shot_id,fingerprint=fingerprint)}
+        if bound_id is None:
+            return {'reservation':reservation,'job':None,
+                    'warning':'Existing reservation requires manual reconciliation'}
+        try:
+            bound=jobs.get_job(folder,bound_id)
+        except FileNotFoundError:
+            return {'reservation':reservation,'job':None,
+                    'warning':'Bound job missing; manual reconciliation required'}
+        if bound['shot_id']!=shot_id or bound.get('fingerprint')!=fingerprint:
+            raise ValueError('Bound job identity differs from reservation')
+        return {'reservation':reservation,'job':bound}
+    # A newly created reservation is the only path that may enqueue.
+    # A crash between enqueue and binding requires manual reconciliation.
+    job=jobs.enqueue(folder,shot_id,fingerprint=fingerprint)
+    bind_dispatch_job(folder,idempotency_key,job['id'])
+    return {'reservation':reservation,'job':job}
