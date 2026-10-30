@@ -24,7 +24,7 @@ class RenderRequest(BaseModel):
     clips: list[Clip]
 
 class ShotNote(BaseModel):
-    shot_id: str = Field(pattern=r'^shot-[0-9]{4}
+    shot_id: str = Field(pattern=r'^shot-[0-9]{4}$')
     clips: list[Clip] = Field(max_length=100)
 
 def project_dir(pid):
