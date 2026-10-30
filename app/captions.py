@@ -3,6 +3,8 @@
 Input transcript is explicit; speech recognition will be integrated separately.
 """
 import math
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
