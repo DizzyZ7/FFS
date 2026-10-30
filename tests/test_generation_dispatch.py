@@ -41,3 +41,21 @@ def test_invalid_ledger_identity_fails_closed(tmp_path,record):
     (directory/'key-12345678.json').write_text(record)
     with pytest.raises(ValueError,match='manual reconciliation'):
         reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
+
+def test_dispatch_job_binding_is_immutable(tmp_path):
+    from app.generation_dispatch import bind_dispatch_job,get_dispatch_job
+    reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
+    first='a'*32
+    second='b'*32
+    assert bind_dispatch_job(tmp_path,'key-12345678',first)==first
+    assert bind_dispatch_job(tmp_path,'key-12345678',first)==first
+    with pytest.raises(ValueError,match='another job'):
+        bind_dispatch_job(tmp_path,'key-12345678',second)
+    assert get_dispatch_job(tmp_path,'key-12345678')==first
+
+def test_invalid_job_binding_fails_closed(tmp_path):
+    from app.generation_dispatch import get_dispatch_job
+    reserve_dispatch(tmp_path,'key-12345678','shot-0001',FP)
+    (tmp_path/'generation-dispatch'/'key-12345678.job').write_text('broken')
+    with pytest.raises(ValueError,match='manual reconciliation'):
+        get_dispatch_job(tmp_path,'key-12345678')
