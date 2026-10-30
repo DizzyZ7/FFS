@@ -30,7 +30,7 @@ def mux_reference_audio(folder:Path,silent_video:Path,output:Path):
     args=['ffmpeg','-hide_banner','-nostdin','-loglevel','error','-y',
           '-i',str(silent_video),'-i',str(source),
           '-map','0:v:0','-map','1:a:0?','-c:v','copy',
-          '-c:a','aac','-b:a','192k','-af','apad',
+          '-c:a','aac','-b:a','192k',
           '-shortest','-movflags','+faststart',str(output)]
     subprocess.run(args,check=True,capture_output=True,text=True,timeout=600)
     return output
