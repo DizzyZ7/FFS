@@ -28,7 +28,7 @@ el('storyboard-button').onclick=async()=>{
    const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.detail));
    const grid=el('storyboard');grid.replaceChildren();
    for(const frame of data.preview_frames){
-     const shot=data.shots.find(s=>s.id===frame.shot_id);
+     const shot=data.shots.find(s=>s.id===frame.shot_id);if(!shot)continue;
      const figure=document.createElement('figure');figure.className='shot';
      const img=document.createElement('img');img.src=frame.url;img.alt='Кадр '+frame.shot_id;img.loading='lazy';
      const caption=document.createElement('figcaption');
