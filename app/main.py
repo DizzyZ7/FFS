@@ -15,6 +15,7 @@ from .transcription import transcribe_words
 from .speech_cuts import plan_speech_cuts
 from .auto_edit import create_auto_edit_plan
 from .edit_instructions import parse_edit_request
+from .highlights import rank_highlights
 from .captions import Word, save_ass, render_captioned_video
 
 ROOT=Path(os.environ.get('FRAMEFORGE_DATA','./data')).resolve()
@@ -245,6 +246,25 @@ def cancel_generation_job(pid:str,job_id:str):
         raise HTTPException(409,str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(404,'Job not found') from exc
+
+class HighlightRequest(BaseModel):
+    model: str = 'tiny'
+    language: str|None = None
+
+@app.post('/api/projects/{pid}/highlights')
+def highlights(pid:str,request:HighlightRequest):
+    folder=project_dir(pid)
+    project=json.loads((folder/'project.json').read_text(encoding='utf8'))
+    try:
+        transcript=transcribe_words(folder/'source.mp4',model=request.model,language=request.language)
+        ranked=rank_highlights(project['scenes'],transcript['words'],
+                               duration=float(project['metadata']['duration']))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503,'Speech analysis unavailable') from exc
+    return {'ranked_scenes':ranked,'ranking_method':'speech_density_and_conciseness',
+            'warning':'Heuristic scores; not semantic quality or emotion detection'}
 
 class EditInstructionRequest(BaseModel):
     instruction: str = Field(min_length=1,max_length=1000)
