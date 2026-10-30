@@ -250,6 +250,29 @@ class CaptionWord(BaseModel):
 class CaptionRenderRequest(BaseModel):
     words: list[CaptionWord] = Field(min_length=1,max_length=3000)
     style: str = Field(default='pop',min_length=3,max_length=7)
+    max_words: int = Field(default=4,ge=1,le=12)
+
+@app.post('/api/projects/{pid}/captions/render')
+def render_captions(pid:str,request:CaptionRenderRequest):
+    folder=project_dir(pid)
+    words=[Word(w.start,w.end,w.text) for w in request.words]
+    try:
+        save_ass(folder/'captions.ass',words,request.style,request.max_words)
+        render_captioned_video(folder/'source.mp4',folder/'captioned.mp4',folder/'captions.ass')
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except (RuntimeError,OSError) as exc:
+        raise HTTPException(500,'Caption rendering failed') from exc
+    return {'download':f'/api/projects/{pid}/captions/download'}
+
+@app.get('/api/projects/{pid}/captions/download')
+def download_captioned(pid:str):
+    path=project_dir(pid)/'captioned.mp4'
+    if not path.is_file():
+        raise HTTPException(404,'Captioned render not found')
+    return FileResponse(path,filename='frameforge-captions.mp4',media_type='video/mp4')
+
+@app.get('/api/projects/{pid}/analysis')
 def get_analysis(pid:str,threshold:float=0.30):
     folder=project_dir(pid)
     try:
