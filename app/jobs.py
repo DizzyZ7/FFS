@@ -63,3 +63,29 @@ def cancel(folder:Path,job_id:str):
         job['updated_at']=_now()
         _write(folder/'generation-jobs'/(job_id+'.json'),job)
         return job
+
+def claim(folder:Path,job_id:str):
+    """Atomically transition a queued job to running within this process."""
+    with _lock:
+        job=get_job(folder,job_id)
+        if job['status']!='queued':
+            raise ValueError('Job is not queued')
+        job['status']='running'
+        job['updated_at']=_now()
+        _write(folder/'generation-jobs'/(job_id+'.json'),job)
+        return job
+
+def complete(folder:Path,job_id:str,*,output_path:str|None=None,error:str|None=None):
+    with _lock:
+        job=get_job(folder,job_id)
+        if job['status']!='running':
+            raise ValueError('Job is not running')
+        if bool(output_path)==bool(error):
+            raise ValueError('Exactly one of output_path or error is required')
+        job['status']='succeeded' if output_path else 'failed'
+        job['progress']=100 if output_path else job['progress']
+        job['output_path']=output_path
+        job['error']=error
+        job['updated_at']=_now()
+        _write(folder/'generation-jobs'/(job_id+'.json'),job)
+        return job
